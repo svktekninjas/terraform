@@ -1,0 +1,148 @@
+# Production Environment Configuration Example
+# Copy this file to terraform.tfvars and customize for your environment
+
+# =============================================================================
+# PROJECT CONFIGURATION
+# =============================================================================
+
+project_name = "rosa-production"
+cluster_name = "rosa-prod-cluster"
+owner        = "platform-team"
+cost_center  = "engineering"
+
+# =============================================================================
+# AWS CONFIGURATION
+# =============================================================================
+
+aws_region = "us-east-1"
+availability_zones = [
+  "us-east-1a",
+  "us-east-1b", 
+  "us-east-1c"
+]
+
+# Cross-region backup region
+backup_region = "us-west-2"
+
+# =============================================================================
+# ROSA CLUSTER CONFIGURATION
+# =============================================================================
+
+# OpenShift version (check available versions with: rosa list versions)
+openshift_version = "4.14"
+
+# Worker node instance type
+compute_machine_type = "m5.xlarge"
+
+# =============================================================================
+# NETWORKING CONFIGURATION
+# =============================================================================
+
+# Option 1: Use existing subnets (recommended for production)
+# subnet_ids = [
+#   "subnet-12345678",  # Private subnet in AZ 1
+#   "subnet-87654321",  # Private subnet in AZ 2
+#   "subnet-11111111"   # Private subnet in AZ 3
+# ]
+
+# Option 2: Let Terraform create new VPC (if subnet_ids is empty)
+subnet_ids = []  # Empty = create new VPC
+
+# VPC and subnet configuration (only used if creating new VPC)
+machine_cidr = "10.0.0.0/16"
+service_cidr = "172.30.0.0/16"
+pod_cidr     = "10.128.0.0/14"
+
+private_subnet_cidrs = [
+  "10.0.1.0/24",   # AZ 1
+  "10.0.2.0/24",   # AZ 2
+  "10.0.3.0/24"    # AZ 3
+]
+
+public_subnet_cidrs = [
+  "10.0.101.0/24", # AZ 1
+  "10.0.102.0/24", # AZ 2
+  "10.0.103.0/24"  # AZ 3
+]
+
+# Network security options
+private      = false  # Set to true for private cluster
+private_link = false  # Set to true for PrivateLink (requires private = true)
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+
+# STS (Security Token Service) - recommended for production
+enable_sts = true
+
+# IAM roles (leave empty to let ROSA create them automatically)
+role_arn             = ""
+support_role_arn     = ""
+operator_roles_prefix = ""
+oidc_config_id       = ""
+
+# Security features
+disable_scp_checks = false
+
+# =============================================================================
+# PROXY CONFIGURATION (if required)
+# =============================================================================
+
+enable_proxy = false
+# http_proxy   = "http://proxy.company.com:8080"
+# https_proxy  = "https://proxy.company.com:8080"
+# no_proxy     = ".company.com,localhost,127.0.0.1"
+
+# Additional trust bundle file path (if using corporate CA)
+# additional_trust_bundle = "/path/to/ca-bundle.pem"
+
+# =============================================================================
+# CLUSTER FEATURES
+# =============================================================================
+
+# User workload monitoring (Prometheus/Grafana for applications)
+disable_user_workload_monitoring = false
+
+# =============================================================================
+# ADMIN USER CONFIGURATION
+# =============================================================================
+
+create_admin_user = true
+# admin_username = "cluster-admin"  # Leave empty for default
+# admin_password = ""               # Leave empty for auto-generated
+
+# =============================================================================
+# INSTALLATION CONFIGURATION
+# =============================================================================
+
+mode    = "auto"  # or "manual" for step-by-step installation
+dry_run = false   # Set to true to see what would be created without actually creating
+watch   = true    # Watch installation progress
+
+# =============================================================================
+# MONITORING CONFIGURATION
+# =============================================================================
+
+enable_alerts = true
+alert_email   = "platform-team@company.com"
+
+# =============================================================================
+# BACKUP CONFIGURATION
+# =============================================================================
+
+# Backup schedule (daily at 2 AM UTC)
+backup_schedule = "cron(0 2 * * * *)"
+
+# Backup retention (90 days for production)
+backup_retention_days = 90
+
+# ETCD backup
+enable_etcd_backup = true
+
+# =============================================================================
+# OUTPUT CONFIGURATION
+# =============================================================================
+
+output_dir        = "./rosa-outputs"
+save_cluster_info = true

@@ -1,0 +1,173 @@
+{
+  "job_id": "idpp_rosa_1751948176357",
+  "document_info": {
+    "filename": "ROSA_Complete_guide.md",
+    "processed_at": "2025-07-08T04:16:16.357Z",
+    "file_type": "markdown",
+    "document_size": "256KB (comprehensive guide)",
+    "processor": "Claude IDPP System"
+  },
+  "document_type": "infrastructure_deployment_guide",
+  "infrastructure": {
+    "compute": [
+      "Red Hat OpenShift Service on AWS (ROSA)",
+      "EC2 instances",
+      "Control plane nodes (3x m5.2xlarge)",
+      "Infrastructure nodes (2x r5.xlarge)",
+      "Worker nodes (2x m5.xlarge minimum)",
+      "Auto Scaling Groups",
+      "Launch Templates",
+      "OpenShift Container Platform",
+      "Kubernetes clusters"
+    ],
+    "network": [
+      "Amazon VPC",
+      "Private subnets",
+      "Public subnets",
+      "Security groups",
+      "Route tables",
+      "Internet Gateway",
+      "NAT Gateway",
+      "VPC endpoints",
+      "Elastic Load Balancing",
+      "Application Load Balancer (ALB)",
+      "Network Load Balancer (NLB)",
+      "Classic Load Balancer",
+      "AWS PrivateLink",
+      "Route 53 DNS",
+      "Shared VPC configuration"
+    ],
+    "storage": [
+      "Amazon S3 buckets",
+      "Amazon EBS volumes",
+      "GP3 storage (default)",
+      "GP2 storage (legacy)",
+      "Persistent volumes",
+      "Image registry storage",
+      "Container registry",
+      "EBS snapshots",
+      "Storage classes"
+    ],
+    "security": [
+      "AWS Identity and Access Management (IAM)",
+      "IAM roles and policies",
+      "AWS Security Token Service (STS)",
+      "OpenID Connect (OIDC) provider",
+      "AWS Key Management Service (KMS)",
+      "Security groups",
+      "Service Control Policies (SCP)",
+      "Encryption at rest",
+      "Network Access Control Lists",
+      "Certificate management"
+    ],
+    "monitoring": [
+      "Amazon CloudWatch",
+      "CloudWatch Logs",
+      "CloudWatch Events",
+      "Monitoring for user-defined projects",
+      "Telemetry collection",
+      "Alert management",
+      "Performance metrics"
+    ],
+    "deployment": [
+      "AWS CloudFormation",
+      "Terraform",
+      "ROSA CLI (rosa)",
+      "OpenShift Cluster Manager",
+      "OpenShift operators",
+      "GitOps with ArgoCD",
+      "CI/CD pipelines",
+      "Infrastructure as Code"
+    ]
+  },
+  "relationships": [
+    {
+      "from": "ROSA cluster",
+      "to": "AWS VPC",
+      "type": "deployed_in",
+      "confidence": 0.95
+    },
+    {
+      "from": "Control plane nodes",
+      "to": "Private subnets",
+      "type": "deployed_in",
+      "confidence": 0.95
+    },
+    {
+      "from": "Worker nodes",
+      "to": "Auto Scaling Groups",
+      "type": "managed_by",
+      "confidence": 0.9
+    },
+    {
+      "from": "Load balancers",
+      "to": "Public subnets",
+      "type": "deployed_in",
+      "confidence": 0.9
+    },
+    {
+      "from": "OpenShift operators",
+      "to": "IAM roles",
+      "type": "uses",
+      "confidence": 0.95
+    },
+    {
+      "from": "ROSA cluster",
+      "to": "S3 buckets",
+      "type": "stores_data_in",
+      "confidence": 0.9
+    },
+    {
+      "from": "Cluster authentication",
+      "to": "OIDC provider",
+      "type": "authenticates_via",
+      "confidence": 0.95
+    }
+  ],
+  "extracted_text": "Red Hat OpenShift Service on AWS (ROSA) provides a model that allows Red Hat to deploy clusters into customer's existing AWS account. Key components include EC2 instances for control plane and worker nodes, VPC networking with public/private subnets, EBS storage for persistent volumes, IAM roles for security, and integration with AWS services like S3, CloudWatch, and Route 53. The documentation covers comprehensive deployment scenarios including STS authentication, PrivateLink connectivity, shared VPC configurations, and multiple deployment methods using Terraform, CLI, and OpenShift Cluster Manager.",
+  "confidence": 0.92,
+  "claude_context": "\nINFRASTRUCTURE DOCUMENT ANALYSIS FOR ROSA DEPLOYMENT\n=====================================================\n\nDocument Summary:\n- Contains comprehensive Red Hat OpenShift Service on AWS deployment guide\n- Document type: Infrastructure deployment and management documentation  \n- Key infrastructure categories: Compute, Network, Storage, Security, Monitoring, Deployment\n\nInfrastructure Components Identified:\n\nCOMPUTE:\n  - Red Hat OpenShift Service on AWS (ROSA) clusters\n  - EC2 instances (control plane: m5.2xlarge, infrastructure: r5.xlarge, worker: m5.xlarge)\n  - Auto Scaling Groups for dynamic scaling\n  - OpenShift Container Platform and Kubernetes orchestration\n\nNETWORK:\n  - Amazon VPC with private and public subnets\n  - Security groups and Network ACLs\n  - Elastic Load Balancing (ALB, NLB, CLB)\n  - AWS PrivateLink for private connectivity\n  - Route 53 DNS management\n  - VPC endpoints and NAT gateways\n\nSTORAGE:\n  - Amazon S3 for image registry and object storage\n  - Amazon EBS volumes (GP3/GP2) for persistent storage\n  - Container registry and image management\n  - Storage classes and persistent volume claims\n\nSECURITY:\n  - AWS IAM roles and policies for fine-grained access control\n  - AWS STS for temporary credential management\n  - OpenID Connect (OIDC) for authentication\n  - AWS KMS for encryption key management\n  - Service Control Policies (SCP) for organization governance\n\nMONITORING:\n  - Amazon CloudWatch for metrics and monitoring\n  - CloudWatch Logs for centralized logging\n  - User-defined project monitoring capabilities\n\nDEPLOYMENT:\n  - Infrastructure as Code with Terraform and CloudFormation\n  - ROSA CLI and OpenShift Cluster Manager for management\n  - GitOps workflows with ArgoCD\n  - Automated deployment pipelines\n\nRelationships Detected:\n  - ROSA clusters deployed within AWS VPC infrastructure\n  - Control plane and worker nodes distributed across availability zones\n  - Load balancers provide access to OpenShift services\n  - IAM roles enable secure access to AWS services\n  - S3 provides backend storage for container images\n\nCONTEXT FOR CLAUDE IaC GENERATION:\nThis document describes a comprehensive Red Hat OpenShift on AWS deployment that requires:\n\n1. **Foundation Infrastructure**: VPC, subnets, security groups, NAT gateways, internet gateways\n2. **Compute Resources**: EC2 instances with specific sizing for different node types\n3. **Storage Infrastructure**: EBS volumes and S3 buckets with appropriate sizing and performance\n4. **Security Framework**: IAM roles, policies, STS integration, and encryption\n5. **Networking Services**: Load balancers, DNS, and private connectivity options\n6. **Monitoring Stack**: CloudWatch integration for observability\n\nGenerate Infrastructure-as-Code templates that are:\n- Production-ready for enterprise OpenShift deployments\n- Following AWS and Red Hat best practices\n- Properly parameterized for different environment sizes\n- Including all necessary IAM permissions and security controls\n- Supporting both STS and non-STS deployment models\n- Enabling PrivateLink for enhanced security where needed\n\nKey Requirements:\n- Multi-AZ deployment for high availability\n- Proper network segmentation with private/public subnets\n- Comprehensive security with least-privilege IAM roles\n- Scalable storage with appropriate performance characteristics\n- Integration with AWS managed services (S3, CloudWatch, Route 53)\n- Support for both automated and manual deployment modes\n",
+  "processing_metadata": {
+    "processor": "Claude Manual IDPP",
+    "extraction_method": "AI-powered document analysis",
+    "processing_time": "Real-time",
+    "version": "1.0.0",
+    "document_sections_analyzed": [
+      "Prerequisites and requirements",
+      "Cluster creation procedures",
+      "Infrastructure components",
+      "Security configurations",
+      "Networking setup",
+      "Storage requirements",
+      "Deployment methods"
+    ],
+    "confidence_factors": [
+      "High technical detail in source document",
+      "Comprehensive coverage of AWS services",
+      "Detailed infrastructure specifications",
+      "Multiple deployment scenarios covered"
+    ],
+    "aws_services_detected": [
+      "EC2",
+      "VPC", 
+      "EBS",
+      "S3",
+      "IAM",
+      "STS",
+      "KMS",
+      "CloudWatch",
+      "Route53",
+      "ELB",
+      "Auto Scaling",
+      "Organizations"
+    ],
+    "rosa_specific_components": [
+      "ROSA CLI",
+      "OpenShift Cluster Manager",
+      "OpenShift operators",
+      "STS authentication",
+      "OIDC provider",
+      "PrivateLink integration"
+    ]
+  }
+}

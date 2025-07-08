@@ -1,0 +1,371 @@
+{
+  "catalog_info": {
+    "name": "ROSA Infrastructure Components Catalog",
+    "version": "1.0.0",
+    "created_at": "2025-07-08T04:16:16.357Z",
+    "description": "Comprehensive catalog of AWS infrastructure components for ROSA deployment",
+    "source_document": "ROSA_Complete_guide.md"
+  },
+  "component_categories": {
+    "compute": {
+      "description": "Compute resources for ROSA cluster deployment",
+      "aws_services": ["EC2", "Auto Scaling"],
+      "components": [
+        {
+          "name": "Control Plane Nodes",
+          "type": "EC2 Instance",
+          "specifications": {
+            "instance_type": "m5.2xlarge",
+            "vcpu": 8,
+            "memory": "32 GiB",
+            "count": 3,
+            "availability_zones": "Multi-AZ recommended"
+          },
+          "purpose": "OpenShift cluster control plane management"
+        },
+        {
+          "name": "Infrastructure Nodes", 
+          "type": "EC2 Instance",
+          "specifications": {
+            "instance_type": "r5.xlarge",
+            "vcpu": 4,
+            "memory": "32 GiB", 
+            "count": 2,
+            "availability_zones": "Multi-AZ recommended"
+          },
+          "purpose": "OpenShift infrastructure services (monitoring, logging, registry)"
+        },
+        {
+          "name": "Worker Nodes",
+          "type": "EC2 Instance", 
+          "specifications": {
+            "instance_type": "m5.xlarge",
+            "vcpu": 4,
+            "memory": "16 GiB",
+            "count": "2 minimum (scalable)",
+            "availability_zones": "Multi-AZ recommended"
+          },
+          "purpose": "Application workload execution"
+        },
+        {
+          "name": "Auto Scaling Groups",
+          "type": "AWS Auto Scaling",
+          "specifications": {
+            "min_size": 2,
+            "max_size": "Variable based on requirements",
+            "desired_capacity": "Based on workload",
+            "health_check_type": "EC2"
+          },
+          "purpose": "Dynamic scaling of worker nodes"
+        }
+      ]
+    },
+    "network": {
+      "description": "Networking infrastructure for ROSA cluster connectivity",
+      "aws_services": ["VPC", "ELB", "Route53"],
+      "components": [
+        {
+          "name": "Amazon VPC",
+          "type": "Virtual Private Cloud",
+          "specifications": {
+            "cidr_block": "10.0.0.0/16 (recommended)",
+            "dns_hostnames": true,
+            "dns_support": true,
+            "tenancy": "default"
+          },
+          "purpose": "Isolated network environment for ROSA cluster"
+        },
+        {
+          "name": "Private Subnets",
+          "type": "VPC Subnet",
+          "specifications": {
+            "cidr_blocks": ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"],
+            "availability_zones": "One per AZ",
+            "map_public_ip": false
+          },
+          "purpose": "Host control plane and worker nodes"
+        },
+        {
+          "name": "Public Subnets", 
+          "type": "VPC Subnet",
+          "specifications": {
+            "cidr_blocks": ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"],
+            "availability_zones": "One per AZ",
+            "map_public_ip": true
+          },
+          "purpose": "Host load balancers and NAT gateways"
+        },
+        {
+          "name": "Internet Gateway",
+          "type": "VPC Gateway", 
+          "specifications": {
+            "count": 1,
+            "attachment": "VPC"
+          },
+          "purpose": "Internet connectivity for public subnets"
+        },
+        {
+          "name": "NAT Gateway",
+          "type": "VPC Gateway",
+          "specifications": {
+            "count": "One per public subnet",
+            "connectivity": "High availability",
+            "allocation": "Elastic IP"
+          },
+          "purpose": "Outbound internet access for private subnets"
+        },
+        {
+          "name": "Application Load Balancer",
+          "type": "Elastic Load Balancing",
+          "specifications": {
+            "scheme": "internet-facing",
+            "type": "application",
+            "ip_address_type": "ipv4"
+          },
+          "purpose": "HTTP/HTTPS traffic routing to applications"
+        },
+        {
+          "name": "Network Load Balancer",
+          "type": "Elastic Load Balancing", 
+          "specifications": {
+            "scheme": "internal/internet-facing",
+            "type": "network",
+            "ip_address_type": "ipv4"
+          },
+          "purpose": "API server access and high-performance traffic"
+        }
+      ]
+    },
+    "storage": {
+      "description": "Storage infrastructure for ROSA cluster data persistence",
+      "aws_services": ["EBS", "S3"],
+      "components": [
+        {
+          "name": "Control Plane Storage",
+          "type": "EBS Volume",
+          "specifications": {
+            "type": "gp3",
+            "size": "350 GiB",
+            "iops": 1000,
+            "encryption": true
+          },
+          "purpose": "Control plane node storage"
+        },
+        {
+          "name": "Infrastructure Node Storage",
+          "type": "EBS Volume", 
+          "specifications": {
+            "type": "gp3",
+            "size": "300 GiB", 
+            "iops": 900,
+            "encryption": true
+          },
+          "purpose": "Infrastructure node storage"
+        },
+        {
+          "name": "Worker Node Storage",
+          "type": "EBS Volume",
+          "specifications": {
+            "type": "gp3",
+            "size": "300 GiB (adjustable)",
+            "iops": 900,
+            "encryption": true
+          },
+          "purpose": "Worker node storage"
+        },
+        {
+          "name": "Image Registry Storage",
+          "type": "S3 Bucket",
+          "specifications": {
+            "storage_class": "Standard",
+            "versioning": "Enabled",
+            "encryption": "AES-256",
+            "lifecycle_policies": "Enabled"
+          },
+          "purpose": "Container image storage"
+        },
+        {
+          "name": "Persistent Volume Storage",
+          "type": "EBS/EFS", 
+          "specifications": {
+            "storage_class": "gp3-csi",
+            "provisioner": "ebs.csi.aws.com",
+            "dynamic_provisioning": true
+          },
+          "purpose": "Application persistent storage"
+        }
+      ]
+    },
+    "security": {
+      "description": "Security components for ROSA cluster protection and access control",
+      "aws_services": ["IAM", "STS", "KMS", "Organizations"],
+      "components": [
+        {
+          "name": "Account-wide IAM Roles",
+          "type": "IAM Role",
+          "specifications": {
+            "roles": ["Installer", "Support", "Worker", "ControlPlane"],
+            "prefix": "ManagedOpenShift",
+            "trust_policy": "AWS STS"
+          },
+          "purpose": "Cross-service authentication for ROSA operations"
+        },
+        {
+          "name": "Operator IAM Roles",
+          "type": "IAM Role",
+          "specifications": {
+            "cluster_specific": true,
+            "prefix": "cluster-name-hash",
+            "operators": ["ingress", "ebs-csi-driver", "cloud-credentials"]
+          },
+          "purpose": "OpenShift operator AWS service access"
+        },
+        {
+          "name": "OIDC Provider",
+          "type": "OpenID Connect",
+          "specifications": {
+            "issuer": "https://oidc.op1.openshiftapps.com/",
+            "audience": "openshift",
+            "thumbprint": "AWS managed"
+          },
+          "purpose": "Workload identity authentication"
+        },
+        {
+          "name": "KMS Keys",
+          "type": "Key Management Service",
+          "specifications": {
+            "type": "symmetric",
+            "usage": "encryption/decryption",
+            "key_rotation": "annual"
+          },
+          "purpose": "Data encryption at rest"
+        },
+        {
+          "name": "Security Groups",
+          "type": "EC2 Security Group",
+          "specifications": {
+            "master_sg": "Control plane access",
+            "worker_sg": "Worker node access", 
+            "ingress_rules": "API server, SSH, application ports"
+          },
+          "purpose": "Network-level security controls"
+        }
+      ]
+    },
+    "monitoring": {
+      "description": "Monitoring and observability infrastructure for ROSA cluster",
+      "aws_services": ["CloudWatch", "CloudTrail"],
+      "components": [
+        {
+          "name": "CloudWatch Metrics",
+          "type": "Monitoring Service",
+          "specifications": {
+            "namespace": "AWS/EC2, AWS/ELB",
+            "custom_metrics": "OpenShift metrics",
+            "retention": "Variable"
+          },
+          "purpose": "Infrastructure and application metrics collection"
+        },
+        {
+          "name": "CloudWatch Logs",
+          "type": "Log Management",
+          "specifications": {
+            "log_groups": "System and application logs",
+            "retention": "Configurable",
+            "encryption": "KMS"
+          },
+          "purpose": "Centralized logging for cluster components"
+        },
+        {
+          "name": "CloudWatch Alarms",
+          "type": "Alerting",
+          "specifications": {
+            "thresholds": "CPU, Memory, Disk",
+            "actions": "SNS notifications",
+            "evaluation_periods": "Configurable"
+          },
+          "purpose": "Automated alerting for infrastructure issues"
+        }
+      ]
+    },
+    "deployment": {
+      "description": "Deployment and management infrastructure for ROSA",
+      "aws_services": ["CloudFormation", "Systems Manager"],
+      "components": [
+        {
+          "name": "CloudFormation Stacks",
+          "type": "Infrastructure as Code",
+          "specifications": {
+            "template_format": "JSON/YAML",
+            "stack_policies": "Change protection",
+            "rollback": "Automatic on failure"
+          },
+          "purpose": "Declarative infrastructure deployment"
+        },
+        {
+          "name": "Terraform Resources",
+          "type": "Infrastructure as Code",
+          "specifications": {
+            "provider": "AWS",
+            "state_backend": "S3 + DynamoDB",
+            "version": "Latest compatible"
+          },
+          "purpose": "Alternative IaC deployment method"
+        },
+        {
+          "name": "ROSA CLI",
+          "type": "Command Line Interface",
+          "specifications": {
+            "authentication": "Red Hat SSO",
+            "aws_integration": "IAM roles/profiles",
+            "cluster_management": "Full lifecycle"
+          },
+          "purpose": "ROSA cluster management and operations"
+        }
+      ]
+    }
+  },
+  "sizing_guidelines": {
+    "development": {
+      "description": "Development and testing environments",
+      "specifications": {
+        "control_plane": "3x m5.large",
+        "infrastructure": "2x r5.large", 
+        "worker_nodes": "2x m5.large",
+        "storage": "Standard sizing",
+        "availability_zones": "Single AZ acceptable"
+      }
+    },
+    "production": {
+      "description": "Production workload environments",
+      "specifications": {
+        "control_plane": "3x m5.2xlarge",
+        "infrastructure": "2x r5.xlarge",
+        "worker_nodes": "3+ m5.xlarge (multi-AZ)",
+        "storage": "Enhanced sizing with backup",
+        "availability_zones": "Multi-AZ required"
+      }
+    },
+    "high_performance": {
+      "description": "High-performance computing workloads",
+      "specifications": {
+        "control_plane": "3x m5.4xlarge",
+        "infrastructure": "2x r5.2xlarge",
+        "worker_nodes": "5+ c5.4xlarge or higher",
+        "storage": "io1/io2 with high IOPS",
+        "availability_zones": "Multi-AZ with placement groups"
+      }
+    }
+  },
+  "cost_optimization": {
+    "recommendations": [
+      "Use Spot Instances for non-critical worker nodes",
+      "Implement lifecycle policies for S3 storage",
+      "Use Reserved Instances for predictable workloads",
+      "Enable EBS optimization and right-sizing",
+      "Implement cluster autoscaling for dynamic workloads",
+      "Use GP3 storage instead of GP2 for cost savings",
+      "Monitor and optimize resource utilization"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "prompt_catalog": {
+    "metadata": {
+      "title": "ROSA Infrastructure Claude Prompts",
+      "description": "Pre-optimized prompts for generating Infrastructure-as-Code templates using ROSA analysis",
+      "version": "1.0.0",
+      "created_at": "2025-07-08T04:16:16.357Z",
+      "compatibility": "Claude 3.5 Sonnet, Claude 4"
+    },
+    "terraform_prompts": {
+      "basic_rosa_infrastructure": {
+        "title": "Basic ROSA Infrastructure",
+        "description": "Generate Terraform code for a basic ROSA cluster deployment",
+        "prompt": "Using the ROSA infrastructure analysis provided, create a complete Terraform configuration that deploys:\n\n1. **VPC Infrastructure**:\n   - VPC with CIDR 10.0.0.0/16\n   - 3 private subnets (10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24)\n   - 3 public subnets (10.0.101.0/24, 10.0.102.0/24, 10.0.103.0/24)\n   - Internet Gateway and NAT Gateways\n   - Route tables and security groups\n\n2. **ROSA Cluster Resources**:\n   - Account-wide IAM roles (Installer, Support, Worker, ControlPlane)\n   - Operator IAM roles with proper policies\n   - OIDC provider configuration\n   - KMS keys for encryption\n\n3. **Supporting Infrastructure**:\n   - S3 bucket for image registry\n   - CloudWatch log groups\n   - Security groups for different node types\n\nRequirements:\n- Use variables for all configurable values\n- Include proper tagging strategy\n- Follow AWS and Terraform best practices\n- Include outputs for important resource ARNs\n- Support both STS and non-STS deployment modes\n- Enable proper security controls and encryption\n\nGenerate production-ready Terraform code with proper modules, variables, and documentation.",
+        "context_variables": [
+          "cluster_name",
+          "aws_region", 
+          "availability_zones",
+          "node_instance_types",
+          "vpc_cidr",
+          "environment"
+        ]
+      },
+      "rosa_with_privatelink": {
+        "title": "ROSA with AWS PrivateLink",
+        "description": "Generate Terraform for ROSA cluster with PrivateLink connectivity",
+        "prompt": "Create a Terraform configuration for a ROSA cluster with AWS PrivateLink based on the infrastructure analysis:\n\n1. **Private Network Infrastructure**:\n   - VPC with only private subnets\n   - VPC endpoints for AWS services (S3, EC2, ELB, etc.)\n   - Route 53 private hosted zones\n   - No internet gateways or public subnets\n\n2. **PrivateLink Configuration**:\n   - VPC endpoint services for ROSA management\n   - Private DNS resolution\n   - Network ACLs for security\n   - VPC endpoint security groups\n\n3. **ROSA Cluster Setup**:\n   - Private cluster configuration\n   - Internal load balancers only\n   - Private container registry access\n   - Encrypted communication channels\n\nEnsure the configuration supports:\n- Complete private connectivity\n- Secure access to Red Hat services\n- Proper DNS resolution for private endpoints\n- Compliance with enterprise security requirements\n\nGenerate comprehensive Terraform code with proper error handling and validation.",
+        "context_variables": [
+          "cluster_name",
+          "vpc_cidr",
+          "private_subnet_cidrs",
+          "aws_region",
+          "privatelink_services"
+        ]
+      },
+      "rosa_multi_az_production": {
+        "title": "ROSA Multi-AZ Production Setup",
+        "description": "Generate Terraform for production-grade multi-AZ ROSA deployment",
+        "prompt": "Based on the ROSA infrastructure analysis, create a production-ready Terraform configuration with:\n\n1. **High Availability Infrastructure**:\n   - Multi-AZ VPC across 3 availability zones\n   - Redundant NAT gateways and subnets\n   - Load balancers with cross-zone load balancing\n   - Auto Scaling Groups with AZ distribution\n\n2. **Production Security**:\n   - Least-privilege IAM roles and policies\n   - KMS encryption for all data at rest\n   - Security groups with minimal required access\n   - VPC Flow Logs for network monitoring\n\n3. **Monitoring and Backup**:\n   - CloudWatch dashboards and alarms\n   - Automated EBS snapshots\n   - S3 lifecycle policies for cost optimization\n   - Log aggregation and retention policies\n\n4. **Disaster Recovery**:\n   - Cross-region backup strategies\n   - Infrastructure replication capabilities\n   - Automated failover mechanisms\n\nInclude:\n- Comprehensive variable definitions\n- Environment-specific configurations\n- Cost optimization features\n- Compliance and governance controls\n- Documentation and deployment guides\n\nGenerate enterprise-grade Terraform with modules, remote state, and CI/CD integration support.",
+        "context_variables": [
+          "cluster_name",
+          "environment",
+          "aws_region",
+          "backup_region",
+          "compliance_requirements",
+          "cost_optimization_level"
+        ]
+      }
+    },
+    "cloudformation_prompts": {
+      "rosa_nested_stacks": {
+        "title": "ROSA CloudFormation Nested Stacks",
+        "description": "Generate CloudFormation templates using nested stacks for ROSA deployment",
+        "prompt": "Create a comprehensive CloudFormation solution for ROSA deployment using nested stacks based on the infrastructure analysis:\n\n1. **Master Stack** (rosa-master.yaml):\n   - Parameters for all configuration options\n   - Nested stack references\n   - Cross-stack outputs and dependencies\n   - Conditional resource creation\n\n2. **Network Stack** (rosa-network.yaml):\n   - VPC, subnets, and routing infrastructure\n   - Security groups and NACLs\n   - VPC endpoints and gateways\n   - DNS and Route 53 configuration\n\n3. **Security Stack** (rosa-security.yaml):\n   - IAM roles and policies for ROSA\n   - KMS keys and encryption policies\n   - OIDC provider configuration\n   - Service-linked roles\n\n4. **Storage Stack** (rosa-storage.yaml):\n   - S3 buckets with proper policies\n   - EBS volume configurations\n   - Backup and lifecycle policies\n\n5. **Monitoring Stack** (rosa-monitoring.yaml):\n   - CloudWatch resources\n   - SNS topics for alerting\n   - Log groups and retention policies\n\nRequirements:\n- Use CloudFormation best practices\n- Include proper parameter validation\n- Implement rollback protection\n- Add comprehensive outputs\n- Support multiple environments\n- Include cost allocation tags\n\nGenerate production-ready CloudFormation templates with proper documentation.",
+        "context_variables": [
+          "stack_name",
+          "environment",
+          "aws_region",
+          "notification_email",
+          "cost_center"
+        ]
+      }
+    },
+    "kubernetes_prompts": {
+      "rosa_manifests": {
+        "title": "ROSA Kubernetes Manifests",
+        "description": "Generate Kubernetes manifests for ROSA cluster configuration",
+        "prompt": "Based on the ROSA infrastructure analysis, create Kubernetes manifests for post-deployment cluster configuration:\n\n1. **Namespace Configuration**:\n   - Application namespaces with resource quotas\n   - Network policies for micro-segmentation\n   - RBAC configurations\n   - Service accounts and bindings\n\n2. **Storage Configuration**:\n   - StorageClasses for different workload types\n   - PersistentVolumeC
