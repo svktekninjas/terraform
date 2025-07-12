@@ -1,0 +1,5 @@
+---
+# vars file for rosa-cli role
+rosa_cli_temp_dir: "/tmp/rosa-cli-install"
+rosa_cli_archive_name: "rosa-linux.tar.gz"
+env_file_name: "export_env.sh"

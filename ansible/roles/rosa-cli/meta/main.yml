@@ -1,0 +1,26 @@
+---
+galaxy_info:
+  author: SRE Team
+  description: ROSA CLI installation, authentication and configuration
+  company: ConsultingFirm
+  license: MIT
+  min_ansible_version: 2.9
+
+  platforms:
+  - name: EL
+    versions:
+    - 8
+    - 9
+  - name: Ubuntu
+    versions:
+    - focal
+    - jammy
+
+  galaxy_tags:
+    - rosa
+    - openshift
+    - aws
+    - cli
+    - redhat
+
+dependencies: []

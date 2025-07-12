@@ -1,0 +1,22 @@
+- name: ROSA Infrastructure Setup
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  pre_tasks:
+    - name: Display playbook start
+      debug:
+        msg: "Starting ROSA infrastructure setup process"
+  
+  roles:
+    - role: aws-setup
+      tags: ['aws', 'setup']
+    - role: rosa-cli
+      tags: ['rosa', 'cli']
+    - role: validation
+      tags: ['validation', 'test']
+  
+  post_tasks:
+    - name: Display playbook completion
+      debug:
+        msg: "ROSA infrastructure setup completed successfully"

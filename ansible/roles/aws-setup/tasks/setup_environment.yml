@@ -1,0 +1,87 @@
+# Task 3: Environment setup and .env file updates
+
+- name: "Prompt for environment selection"
+  pause:
+    prompt: "Please select the environment (dev/test/prod)"
+  register: environment_input
+  when: target_environment is not defined
+
+- name: "Set target environment"
+  set_fact:
+    target_environment: "{{ environment_input.user_input if environment_input.user_input is defined else target_environment }}"
+
+- name: "Validate environment selection"
+  fail:
+    msg: "Invalid environment selection. Please choose from: dev, test, prod"
+  when: target_environment not in ['dev', 'test', 'prod']
+
+- name: "Set terraform environment path"
+  set_fact:
+    terraform_env_path: "{{ playbook_dir }}/../terraform/environments/{{ target_environment }}"
+
+- name: "Check if terraform environment directory exists"
+  stat:
+    path: "{{ terraform_env_path }}"
+  register: terraform_env_dir
+
+- name: "Create terraform environment directory if it doesn't exist"
+  file:
+    path: "{{ terraform_env_path }}"
+    state: directory
+    mode: '0755'
+  when: not terraform_env_dir.stat.exists
+
+- name: "Check if .env file exists"
+  stat:
+    path: "{{ terraform_env_path }}/.env"
+  register: env_file_check
+
+- name: "Create .env file from template"
+  template:
+    src: env.j2
+    dest: "{{ terraform_env_path }}/.env"
+    mode: '0644'
+  when: not env_file_check.stat.exists
+
+- name: "Update .env file with AWS profile configuration"
+  blockinfile:
+    path: "{{ terraform_env_path }}/.env"
+    block: |
+      # AWS Configuration (Profile-based)
+      AWS_PROFILE={{ aws_profile }}
+      AWS_DEFAULT_REGION={{ aws_region | default('us-east-1') }}
+      AWS_REGION={{ aws_region | default('us-east-1') }}
+      
+      # Environment Configuration
+      ENVIRONMENT={{ target_environment }}
+      TERRAFORM_WORKSPACE={{ target_environment }}
+    marker: "# {mark} ANSIBLE MANAGED AWS BLOCK"
+    create: yes
+
+- name: "Set environment variables in current session"
+  shell: |
+    export AWS_PROFILE={{ aws_profile }}
+    export AWS_DEFAULT_REGION={{ aws_region | default('us-east-1') }}
+    export AWS_REGION={{ aws_region | default('us-east-1') }}
+    export ENVIRONMENT={{ target_environment }}
+    export TERRAFORM_WORKSPACE={{ target_environment }}
+
+- name: "Create environment export script"
+  template:
+    src: export_env.sh.j2
+    dest: "{{ terraform_env_path }}/export_env.sh"
+    mode: '0755'
+
+- name: "Display environment setup completion"
+  debug:
+    msg: |
+      Environment setup completed successfully!
+      
+      Configuration:
+      - Environment: {{ target_environment }}
+      - Terraform path: {{ terraform_env_path }}
+      - .env file updated: {{ terraform_env_path }}/.env
+      - Export script created: {{ terraform_env_path }}/export_env.sh
+      
+      To use the environment variables in your shell, run:
+      source {{ terraform_env_path }}/export_env.sh

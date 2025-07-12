@@ -1,0 +1,31 @@
+galaxy_info:
+  author: DevOps Team
+  description: AWS CLI setup and configuration validation role
+  company: Consulting Firm
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - bionic
+        - focal
+        - jammy
+    - name: EL
+      versions:
+        - 7
+        - 8
+        - 9
+    - name: MacOSX
+      versions:
+        - 10.15
+        - 11.0
+        - 12.0
+  galaxy_tags:
+    - aws
+    - cli
+    - setup
+    - configuration
+    - validation
+
+dependencies: []
+

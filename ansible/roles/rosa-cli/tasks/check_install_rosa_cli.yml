@@ -1,0 +1,80 @@
+---
+# Task 1: Check if ROSA CLI is installed and up to date version
+- name: Check if ROSA CLI is installed
+  shell: "which {{ rosa_cli_binary_name }}"
+  register: rosa_cli_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Get current ROSA CLI version if installed
+  shell: "{{ rosa_cli_binary_name }} version --output=json"
+  register: rosa_current_version
+  ignore_errors: true
+  changed_when: false
+  when: rosa_cli_check.rc == 0
+
+- name: Create temporary directory for ROSA CLI installation
+  file:
+    path: "{{ rosa_cli_temp_dir }}"
+    state: directory
+    mode: '0755'
+  when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+
+- name: Download latest ROSA CLI version info
+  uri:
+    url: "https://api.github.com/repos/openshift/rosa/releases/latest"
+    method: GET
+    return_content: yes
+  register: rosa_latest_release
+  when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+
+- name: Set latest version fact
+  set_fact:
+    rosa_latest_version: "{{ rosa_latest_release.json.tag_name }}"
+  when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+
+- name: Check if update is needed
+  set_fact:
+    rosa_needs_update: true
+  when: >
+    rosa_cli_check.rc != 0 or 
+    (rosa_current_version.stdout is defined and 
+     rosa_current_version.stdout | from_json | json_query('releaseVersion') != rosa_latest_version)
+
+- name: Download ROSA CLI archive
+  get_url:
+    url: "{{ rosa_cli_download_url }}"
+    dest: "{{ rosa_cli_temp_dir }}/{{ rosa_cli_archive_name }}"
+    mode: '0644'
+  when: rosa_needs_update | default(false)
+
+- name: Extract ROSA CLI archive
+  unarchive:
+    src: "{{ rosa_cli_temp_dir }}/{{ rosa_cli_archive_name }}"
+    dest: "{{ rosa_cli_temp_dir }}"
+    remote_src: yes
+  when: rosa_needs_update | default(false)
+
+- name: Install/Update ROSA CLI binary
+  copy:
+    src: "{{ rosa_cli_temp_dir }}/rosa"
+    dest: "{{ rosa_cli_install_path }}/{{ rosa_cli_binary_name }}"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  when: rosa_needs_update | default(false)
+
+- name: Verify ROSA CLI installation
+  shell: "{{ rosa_cli_binary_name }} version"
+  register: rosa_verify_install
+  changed_when: false
+
+- name: Display ROSA CLI version
+  debug:
+    msg: "ROSA CLI version: {{ rosa_verify_install.stdout }}"
+
+- name: Clean up temporary directory
+  file:
+    path: "{{ rosa_cli_temp_dir }}"
+    state: absent
+  when: rosa_needs_update | default(false)

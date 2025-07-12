@@ -1,0 +1,16 @@
+# Role-specific variables for aws-setup role
+
+# AWS CLI Download URLs
+aws_cli_linux_url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+aws_cli_macos_url: "https://awscli.amazonaws.com/AWSCLIV2.pkg"
+
+# Valid environments
+valid_environments:
+  - dev
+  - test
+  - prod
+
+# Required AWS policies for admin access
+required_policies:
+  - "AdministratorAccess"
+  - "PowerUserAccess"

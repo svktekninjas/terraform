@@ -1,0 +1,11 @@
+- name: Test AWS Setup Role
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  roles:
+    - aws-setup
+  
+  vars:
+    aws_region: "us-east-1"
+    target_environment: "dev"

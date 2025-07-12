@@ -1,0 +1,19 @@
+# Main tasks file for aws-setup role
+# This file coordinates the execution of all aws-setup related tasks
+
+- name: "AWS Setup - Starting configuration"
+  debug:
+    msg: "Starting AWS CLI setup and configuration validation"
+
+- name: "Include AWS CLI installation tasks"
+  include_tasks: install_aws_cli.yml
+
+- name: "Include AWS service account validation tasks"
+  include_tasks: validate_service_account.yml
+
+- name: "Include environment setup tasks"
+  include_tasks: setup_environment.yml
+
+- name: "AWS Setup - Configuration complete"
+  debug:
+    msg: "AWS CLI setup and configuration validation completed successfully"

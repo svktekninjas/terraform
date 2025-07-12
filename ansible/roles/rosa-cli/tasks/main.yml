@@ -1,0 +1,19 @@
+---
+# tasks file for rosa-cli role
+- name: Include check and install ROSA CLI task
+  include_tasks: check_install_rosa_cli.yml
+  tags:
+    - rosa-cli-install
+    - rosa-setup
+
+- name: Include ROSA authentication task
+  include_tasks: rosa_authentication.yml
+  tags:
+    - rosa-auth
+    - rosa-setup
+
+- name: Include environment configuration task
+  include_tasks: configure_environment.yml
+  tags:
+    - rosa-env
+    - rosa-setup
