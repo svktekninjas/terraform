@@ -6,7 +6,7 @@ aws_output_format: "json"
 
 # Environment Configuration
 target_environment: ""
-terraform_base_path: "{{ playbook_dir }}/../terraform/environments"
+terraform_base_path: "/Users/swaroop/Documents/FullStack-SRE/ConsultingFirm_infra/ROSA/terraform/environments"
 
 # Installation Configuration
 aws_cli_version: "2"

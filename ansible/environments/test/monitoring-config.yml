@@ -1,0 +1,66 @@
+# Test Environment Monitoring Configuration
+---
+# Environment Configuration
+environment_name: "test"
+environment_suffix: "test"
+
+# CloudWatch Configuration
+enable_cloudwatch_insights: true
+cloudwatch_log_group: "/rosa/cluster/{{ cluster_name_prefix }}-{{ environment_suffix }}"
+cloudwatch_log_retention_days: 14
+cloudwatch_log_stream_prefix: "test-node-"
+
+# Prometheus Configuration
+prometheus_config:
+  namespace: "monitoring"
+  storage_size: "10Gi"
+  retention_period: "14d"
+  memory_request: "400Mi"
+  memory_limit: "800Mi"
+  cpu_request: "100m"
+  cpu_limit: "200m"
+  scrape_interval: "30s"
+  evaluation_interval: "30s"
+
+# Grafana Configuration
+grafana_config:
+  namespace: "monitoring"
+  admin_user: "admin"
+  admin_password: "test-admin456"
+  memory_request: "150Mi"
+  memory_limit: "300Mi"
+  cpu_request: "75m"
+  cpu_limit: "150m"
+  expose_route: true
+  hostname_suffix: "test.monitoring"
+
+# Node Exporter Configuration
+node_exporter_config:
+  namespace: "monitoring"
+  memory_request: "50Mi"
+  memory_limit: "100Mi"
+  cpu_request: "50m"
+  cpu_limit: "100m"
+  host_network: true
+  host_pid: true
+
+# Alerting Configuration
+alerting_config:
+  enable_alerts: true
+  alert_severity: "warning"
+  webhook_url: ""
+  slack_channel: "#test-alerts"
+
+# Log Forwarding Configuration
+log_forwarding:
+  enable_cluster_logging: true
+  buffer_size: "10MB"
+  flush_interval: "10s"
+  log_level: "info"
+
+# Test specific settings
+test_settings:
+  debug_mode: false
+  verbose_logging: false
+  enable_debug_endpoints: false
+  load_testing_mode: true

@@ -1,0 +1,367 @@
+# Setup Grafana dashboards for ROSA monitoring
+---
+- name: "Set default values for dashboard variables"
+  set_fact:
+    monitoring_namespace: "{{ monitoring_namespace | default('monitoring') }}"
+    full_cluster_name: "{{ full_cluster_name | default('rosa-' + target_environment) }}"
+    cluster_name_prefix: "{{ cluster_name_prefix | default('rosa') }}"
+  tags:
+    - monitoring
+    - dashboards
+    - grafana
+
+- name: "Verify monitoring namespace exists"
+  shell: oc get namespace {{ monitoring_namespace }}
+  register: namespace_check
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - dashboards
+    - validation
+
+- name: "Verify Grafana deployment exists"
+  shell: oc get deployment grafana -n {{ monitoring_namespace }}
+  register: grafana_check
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - dashboards
+    - validation
+
+- name: "Display validation status"
+  debug:
+    msg:
+      - "📋 Dashboard setup validation:"
+      - "  - Namespace {{ monitoring_namespace }}: {{ 'Found' if namespace_check.rc == 0 else 'Not Found' }}"
+      - "  - Grafana deployment: {{ 'Found' if grafana_check.rc == 0 else 'Not Found' }}"
+      - "  - Cluster name: {{ full_cluster_name }}"
+      - "  - Environment: {{ target_environment }}"
+  tags:
+    - monitoring
+    - dashboards
+
+- name: "Create Grafana dashboard provisioning configuration"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-dashboards-provisioning
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    data:
+      dashboards.yaml: |
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+    EOF
+  register: dashboard_provisioning_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: namespace_check.rc == 0
+  tags:
+    - monitoring
+    - dashboards
+    - grafana
+
+- name: "Create ROSA cluster overview dashboard"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-dashboards
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    data:
+      rosa-overview.json: |
+        {
+          "dashboard": {
+            "id": null,
+            "title": "ROSA Cluster Overview - {{ target_environment }}",
+            "description": "Overview dashboard for ROSA cluster {{ full_cluster_name }}",
+            "tags": ["rosa", "openshift", "{{ target_environment }}"],
+            "timezone": "browser",
+            "editable": true,
+            "time": {
+              "from": "now-1h",
+              "to": "now"
+            },
+            "refresh": "30s",
+            "panels": [
+              {
+                "id": 1,
+                "title": "Cluster CPU Usage",
+                "type": "stat",
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+                "targets": [
+                  {
+                    "expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                    "refId": "A",
+                    "legendFormat": "CPU Usage %"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                      "steps": [
+                        {"color": "green", "value": null},
+                        {"color": "yellow", "value": 70},
+                        {"color": "red", "value": 90}
+                      ]
+                    }
+                  }
+                },
+                "options": {
+                  "colorMode": "background",
+                  "graphMode": "area",
+                  "justifyMode": "center"
+                }
+              },
+              {
+                "id": 2,
+                "title": "Cluster Memory Usage",
+                "type": "stat",
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+                "targets": [
+                  {
+                    "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                    "refId": "A",
+                    "legendFormat": "Memory Usage %"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                      "steps": [
+                        {"color": "green", "value": null},
+                        {"color": "yellow", "value": 80},
+                        {"color": "red", "value": 95}
+                      ]
+                    }
+                  }
+                },
+                "options": {
+                  "colorMode": "background",
+                  "graphMode": "area",
+                  "justifyMode": "center"
+                }
+              },
+              {
+                "id": 3,
+                "title": "Pod Count",
+                "type": "stat",
+                "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8},
+                "targets": [
+                  {
+                    "expr": "sum(kube_pod_info)",
+                    "refId": "A",
+                    "legendFormat": "Total Pods"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "thresholds": {
+                      "steps": [
+                        {"color": "green", "value": null},
+                        {"color": "yellow", "value": 100},
+                        {"color": "red", "value": 200}
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": 4,
+                "title": "Node Count",
+                "type": "stat",
+                "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+                "targets": [
+                  {
+                    "expr": "count(up{job=\"node-exporter\"})",
+                    "refId": "A",
+                    "legendFormat": "Active Nodes"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "short",
+                    "thresholds": {
+                      "steps": [
+                        {"color": "red", "value": null},
+                        {"color": "yellow", "value": 1},
+                        {"color": "green", "value": 2}
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": 5,
+                "title": "Disk Usage",
+                "type": "stat",
+                "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+                "targets": [
+                  {
+                    "expr": "100 - ((node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes)",
+                    "refId": "A",
+                    "legendFormat": "Disk Usage %"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "thresholds": {
+                      "steps": [
+                        {"color": "green", "value": null},
+                        {"color": "yellow", "value": 80},
+                        {"color": "red", "value": 95}
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": 6,
+                "title": "Network I/O",
+                "type": "stat",
+                "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+                "targets": [
+                  {
+                    "expr": "sum(rate(node_network_receive_bytes_total[5m])) + sum(rate(node_network_transmit_bytes_total[5m]))",
+                    "refId": "A",
+                    "legendFormat": "Network I/O"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "Bps",
+                    "thresholds": {
+                      "steps": [
+                        {"color": "green", "value": null},
+                        {"color": "yellow", "value": 10000000},
+                        {"color": "red", "value": 50000000}
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "id": 7,
+                "title": "CPU Usage Over Time",
+                "type": "timeseries",
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+                "targets": [
+                  {
+                    "expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                    "refId": "A",
+                    "legendFormat": "CPU Usage %"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              },
+              {
+                "id": 8,
+                "title": "Memory Usage Over Time",
+                "type": "timeseries",
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+                "targets": [
+                  {
+                    "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                    "refId": "A",
+                    "legendFormat": "Memory Usage %"
+                  }
+                ],
+                "fieldConfig": {
+                  "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100
+                  }
+                }
+              }
+            ],
+            "templating": {
+              "list": [
+                {
+                  "name": "cluster",
+                  "type": "constant",
+                  "current": {
+                    "value": "{{ full_cluster_name }}",
+                    "text": "{{ full_cluster_name }}"
+                  }
+                },
+                {
+                  "name": "environment",
+                  "type": "constant",
+                  "current": {
+                    "value": "{{ target_environment }}",
+                    "text": "{{ target_environment }}"
+                  }
+                }
+              ]
+            },
+            "annotations": {
+              "list": []
+            },
+            "schemaVersion": 30,
+            "version": 1
+          }
+        }
+    EOF
+  register: rosa_dashboard_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: namespace_check.rc == 0
+  tags:
+    - monitoring
+    - dashboards
+    - grafana
+
+- name: "Display dashboard setup results"
+  debug:
+    msg:
+      - "📊 Grafana dashboard setup completed:"
+      - "  - Namespace: {{ monitoring_namespace }} ({{ 'Found' if namespace_check.rc == 0 else 'Not Found' }})"
+      - "  - Grafana deployment: {{ 'Found' if grafana_check.rc == 0 else 'Not Found' }}"
+      - "  - Dashboard Provisioning: {{ 'Created' if (dashboard_provisioning_result is defined and dashboard_provisioning_result.rc == 0) else ('Skipped' if namespace_check.rc != 0 else 'Error') }}"
+      - "  - ROSA Overview Dashboard: {{ 'Created' if (rosa_dashboard_result is defined and rosa_dashboard_result.rc == 0) else ('Skipped' if namespace_check.rc != 0 else 'Error') }}"
+      - "  - Dashboard Title: ROSA Cluster Overview - {{ target_environment }}"
+      - "  - Cluster: {{ full_cluster_name }}"
+      - "  - Environment: {{ target_environment }}"
+      - "{% if namespace_check.rc != 0 %}  - Note: Dashboards skipped due to missing namespace. Run Grafana deployment first.{% endif %}"
+  tags:
+    - monitoring
+    - dashboards
+    - grafana

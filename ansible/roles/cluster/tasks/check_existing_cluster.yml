@@ -1,0 +1,131 @@
+# Check if cluster already exists and handle user decision
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Set full cluster name"
+  set_fact:
+    full_cluster_name: "{{ cluster_name_prefix }}-{{ target_environment }}"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Check if cluster already exists"
+  shell: rosa describe cluster {{ full_cluster_name }} --output json
+  register: existing_cluster_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Display existing cluster information"
+  debug:
+    msg:
+      - "📋 Existing cluster found: {{ full_cluster_name }}"
+      - "Cluster details: {{ existing_cluster_check.stdout | from_json }}"
+  when: existing_cluster_check.rc == 0
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Prompt user for action on existing cluster"
+  pause:
+    prompt: |
+      
+      ⚠️  Cluster '{{ full_cluster_name }}' already exists!
+      
+      What would you like to do?
+      1. Use existing cluster (skip creation)
+      2. Delete existing cluster and recreate
+      3. Abort (exit without changes)
+      
+      Please enter your choice (1/2/3)
+  register: user_cluster_choice
+  when: existing_cluster_check.rc == 0
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Set cluster action based on user choice"
+  set_fact:
+    cluster_action: |
+      {%- if user_cluster_choice.user_input == '1' -%}
+      use_existing
+      {%- elif user_cluster_choice.user_input == '2' -%}
+      delete_recreate
+      {%- elif user_cluster_choice.user_input == '3' -%}
+      abort
+      {%- else -%}
+      invalid
+      {%- endif -%}
+  when: existing_cluster_check.rc == 0
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Fail on invalid user choice"
+  fail:
+    msg: "❌ Invalid choice '{{ user_cluster_choice.user_input }}'. Please run again and choose 1, 2, or 3."
+  when: 
+    - existing_cluster_check.rc == 0
+    - cluster_action == "invalid"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Abort on user request"
+  fail:
+    msg: "🛑 Cluster creation aborted by user request."
+  when: 
+    - existing_cluster_check.rc == 0
+    - cluster_action == "abort"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Set skip cluster creation flag"
+  set_fact:
+    skip_cluster_creation: true
+  when: 
+    - existing_cluster_check.rc == 0
+    - cluster_action == "use_existing"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Set delete and recreate flag"
+  set_fact:
+    delete_existing_cluster: true
+    skip_cluster_creation: false
+  when: 
+    - existing_cluster_check.rc == 0
+    - cluster_action == "delete_recreate"
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Set create new cluster flag"
+  set_fact:
+    skip_cluster_creation: false
+    delete_existing_cluster: false
+  when: existing_cluster_check.rc != 0
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Log cluster check results"
+  debug:
+    msg:
+      - "✅ Cluster existence check completed:"
+      - "  - Cluster name: {{ full_cluster_name }}"
+      - "  - Cluster exists: {{ existing_cluster_check.rc == 0 }}"
+      - "  - Action: {{ cluster_action | default('create_new') }}"
+      - "  - Skip creation: {{ skip_cluster_creation | default(false) }}"
+      - "  - Delete existing: {{ delete_existing_cluster | default(false) }}"
+  tags:
+    - cluster
+    - cluster-check

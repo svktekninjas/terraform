@@ -1,7 +1,17 @@
 # Outputs for Validation Module
 
-output "validation_results" {
+output "pre_validation_results" {
   description = "Results of pre-deployment validation checks"
+  value       = local.pre_validation_results
+}
+
+output "infra_validation_results" {
+  description = "Results of infrastructure validation checks"
+  value       = local.infra_validation_results
+}
+
+output "validation_results" {
+  description = "Combined validation results (for backward compatibility)"
   value       = local.validation_results
 }
 
@@ -10,8 +20,18 @@ output "all_validations_passed" {
   value       = local.all_validations_passed
 }
 
+output "failed_pre_validations" {
+  description = "List of failed pre-deployment validation checks"
+  value       = local.failed_pre_validations
+}
+
+output "failed_infra_validations" {
+  description = "List of failed infrastructure validation checks"
+  value       = local.failed_infra_validations
+}
+
 output "failed_validations" {
-  description = "List of failed validation checks"
+  description = "List of all failed validation checks"
   value       = local.failed_validations
 }
 
@@ -26,7 +46,12 @@ output "region_info" {
 
 output "pre_validation_status" {
   description = "Status of pre-deployment validation"
-  value = var.enable_pre_validation ? "Enabled and executed" : "Disabled"
+  value = var.enable_pre_validation ? "Enabled" : "Disabled"
+}
+
+output "infra_validation_status" {
+  description = "Status of infrastructure validation"
+  value = var.enable_infra_validation ? "Enabled" : "Disabled"
 }
 
 output "post_validation_status" {

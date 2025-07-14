@@ -1,0 +1,66 @@
+# Create OIDC configuration for ROSA cluster
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Check existing OIDC configurations"
+  shell: rosa list oidc-config
+  register: existing_oidc_configs
+  changed_when: false
+  failed_when: false
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Create OIDC configuration"
+  shell: |
+    rosa create oidc-config \
+      --mode {{ mode }} \
+      --yes
+  register: oidc_config_result
+  when: existing_oidc_configs.stdout_lines | length <= 1
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Get OIDC config list after creation"
+  shell: rosa list oidc-config
+  register: oidc_config_list
+  changed_when: false
+  when: oidc_config_result is defined and oidc_config_result.changed
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Extract OIDC config ID from list"
+  set_fact:
+    oidc_config_id: "{{ oidc_config_list.stdout_lines[1].split()[0] }}"
+  when: 
+    - oidc_config_result is defined and oidc_config_result.changed
+    - oidc_config_list.stdout_lines | length > 1
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Get existing OIDC config ID"
+  set_fact:
+    oidc_config_id: "{{ existing_oidc_configs.stdout_lines[1].split()[0] }}"
+  when: 
+    - existing_oidc_configs.stdout_lines | length > 1
+    - oidc_config_id is not defined
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Display OIDC configuration result"
+  debug:
+    msg:
+      - "✅ OIDC configuration ready:"
+      - "  - OIDC Config ID: {{ oidc_config_id }}"
+      - "  - Status: {{ 'Created' if oidc_config_result is defined and oidc_config_result.changed else 'Using existing' }}"
+  tags:
+    - cluster
+    - oidc-config

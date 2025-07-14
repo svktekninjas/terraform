@@ -3,6 +3,8 @@
 ## Overview
 This learning module provides step-by-step instructions for creating an Ansible role to manage ROSA (Red Hat OpenShift Service on AWS) CLI installation, authentication, and environment configuration.
 
+> **Updated**: This guide includes production-tested fixes for ROSA CLI version checking, environment variable conflicts, and selective environment file updates.
+
 ## Prerequisites
 - Basic understanding of Ansible roles and playbooks
 - Access to a Red Hat account with ROSA permissions
@@ -44,7 +46,7 @@ rosa_cli_download_url: "https://mirror.openshift.com/pub/openshift-v4/clients/ro
 rosa_cli_install_path: "/usr/local/bin"
 rosa_cli_binary_name: "rosa"
 rosa_auth_token: ""
-environment: "dev"
+environment: "dev"  # Note: Use target_environment in CLI to avoid conflicts
 terraform_env_path: "/absolute/path/to/terraform/environments"
 ```
 
@@ -137,13 +139,15 @@ Create `tasks/check_install_rosa_cli.yml`:
   register: rosa_cli_check
   ignore_errors: true
   changed_when: false
+  tags: rosa
 
 - name: Get current ROSA CLI version if installed
-  shell: "{{ rosa_cli_binary_name }} version --output=json"
+  shell: "{{ rosa_cli_binary_name }} version --client"
   register: rosa_current_version
   ignore_errors: true
   changed_when: false
   when: rosa_cli_check.rc == 0
+  tags: rosa
 
 - name: Create temporary directory for ROSA CLI installation
   file:
@@ -151,6 +155,7 @@ Create `tasks/check_install_rosa_cli.yml`:
     state: directory
     mode: '0755'
   when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+  tags: rosa
 
 - name: Download latest ROSA CLI version info
   uri:
@@ -159,19 +164,22 @@ Create `tasks/check_install_rosa_cli.yml`:
     return_content: yes
   register: rosa_latest_release
   when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+  tags: rosa
 
 - name: Set latest version fact
   set_fact:
     rosa_latest_version: "{{ rosa_latest_release.json.tag_name }}"
   when: rosa_cli_check.rc != 0 or rosa_cli_version != "latest"
+  tags: rosa
 
 - name: Check if update is needed
   set_fact:
     rosa_needs_update: true
   when: >
     rosa_cli_check.rc != 0 or 
-    (rosa_current_version.stdout is defined and 
-     rosa_current_version.stdout | from_json | json_query('releaseVersion') != rosa_latest_version)
+    (rosa_cli_version != "latest" and rosa_current_version.stdout is defined and
+     rosa_latest_version is defined and rosa_latest_version not in rosa_current_version.stdout)
+  tags: rosa
 
 - name: Download ROSA CLI archive
   get_url:
@@ -179,6 +187,7 @@ Create `tasks/check_install_rosa_cli.yml`:
     dest: "{{ rosa_cli_temp_dir }}/{{ rosa_cli_archive_name }}"
     mode: '0644'
   when: rosa_needs_update | default(false)
+  tags: rosa
 
 - name: Extract ROSA CLI archive
   unarchive:
@@ -186,6 +195,7 @@ Create `tasks/check_install_rosa_cli.yml`:
     dest: "{{ rosa_cli_temp_dir }}"
     remote_src: yes
   when: rosa_needs_update | default(false)
+  tags: rosa
 
 - name: Install/Update ROSA CLI binary
   copy:
@@ -195,21 +205,25 @@ Create `tasks/check_install_rosa_cli.yml`:
     remote_src: yes
   become: yes
   when: rosa_needs_update | default(false)
+  tags: rosa
 
 - name: Verify ROSA CLI installation
   shell: "{{ rosa_cli_binary_name }} version"
   register: rosa_verify_install
   changed_when: false
+  tags: rosa
 
 - name: Display ROSA CLI version
   debug:
     msg: "ROSA CLI version: {{ rosa_verify_install.stdout }}"
+  tags: rosa
 
 - name: Clean up temporary directory
   file:
     path: "{{ rosa_cli_temp_dir }}"
     state: absent
   when: rosa_needs_update | default(false)
+  tags: rosa
 ```
 
 **Key Concepts Demonstrated**:
@@ -305,113 +319,78 @@ Create `tasks/configure_environment.yml`:
 ```yaml
 ---
 # Task 3: Create ROSA auth token variable and update .env file in terraform/environments folder
+- name: Set target environment variable
+  set_fact:
+    target_env: "{{ target_environment | default(environment | default('')) }}"
+  tags: rosa
+
 - name: Prompt user for environment (dev/test/prod)
   pause:
     prompt: "Please enter the target environment (dev/test/prod)"
   register: environment_input
-  when: environment == ""
+  when: target_env == ""
+  tags: rosa
 
 - name: Set environment from user input
   set_fact:
-    environment: "{{ environment_input.user_input | lower }}"
-  when: environment == "" and environment_input.user_input is defined
+    target_env: "{{ environment_input.user_input | lower }}"
+  when: target_env == "" and environment_input.user_input is defined
+  tags: rosa
 
 - name: Validate environment input
   fail:
     msg: "Environment must be one of: dev, test, prod"
-  when: environment not in ['dev', 'test', 'prod']
+  when: target_env not in ['dev', 'test', 'prod']
+  tags: rosa
 
 - name: Set environment file path
   set_fact:
-    env_file_path: "{{ terraform_env_path }}/{{ environment }}/{{ env_file_name }}"
+    env_file_path: "{{ terraform_env_path }}/{{ target_env }}/{{ env_file_name }}"
+  tags: rosa
 
 - name: Check if environment directory exists
   stat:
-    path: "{{ terraform_env_path }}/{{ environment }}"
+    path: "{{ terraform_env_path }}/{{ target_env }}"
   register: env_dir_check
+  tags: rosa
 
 - name: Create environment directory if it doesn't exist
   file:
-    path: "{{ terraform_env_path }}/{{ environment }}"
+    path: "{{ terraform_env_path }}/{{ target_env }}"
     state: directory
     mode: '0755'
   when: not env_dir_check.stat.exists
+  tags: rosa
 
 - name: Check if environment file exists
   stat:
     path: "{{ env_file_path }}"
   register: env_file_check
+  tags: rosa
 
-- name: Read existing environment file content
-  slurp:
-    src: "{{ env_file_path }}"
-  register: existing_env_content
-  when: env_file_check.stat.exists
+- name: Ensure environment file exists (should be created by aws-setup role)
+  fail:
+    msg: "Environment file {{ env_file_path }} does not exist. Please run aws-setup role first."
+  when: not env_file_check.stat.exists
 
-- name: Decode existing environment content
-  set_fact:
-    current_env_lines: "{{ (existing_env_content.content | b64decode).split('\n') }}"
-  when: env_file_check.stat.exists
-
-- name: Filter out existing ROSA token entries
-  set_fact:
-    filtered_env_lines: "{{ current_env_lines | reject('match', '^export ROSA_TOKEN=.*') | reject('match', '^export TF_VAR_rosa_token=.*') | list }}"
-  when: env_file_check.stat.exists
-
-- name: Add ROSA token environment variables
-  set_fact:
-    updated_env_lines: "{{ (filtered_env_lines | default([])) + rosa_env_additions }}"
-  vars:
-    rosa_env_additions:
-      - ""
-      - "# ROSA CLI authentication token"
-      - "export ROSA_TOKEN=\"{{ validated_rosa_token }}\""
-      - "export TF_VAR_rosa_token=\"{{ validated_rosa_token }}\""
-
-- name: Create/Update environment file with ROSA token
-  copy:
-    content: |
-      {% if not env_file_check.stat.exists %}
-      #!/bin/bash
-      # Environment Export Script
-      # Generated by Ansible rosa-cli role
-      
-      # Set AWS profile
-      export AWS_PROFILE="svktek"
-      export AWS_DEFAULT_REGION="us-east-1"
-      export AWS_REGION="us-east-1"
-      
-      # Set environment variables
-      export ENVIRONMENT="{{ environment }}"
-      export TERRAFORM_WORKSPACE="{{ environment }}"
-      
-      # Set project variables
-      export PROJECT_NAME="ROSA-Infrastructure"
-      export PROJECT_VERSION="1.0.0"
-      
-      # Set Terraform variables
-      export TF_VAR_environment="{{ environment }}"
-      export TF_VAR_region="us-east-1"
-      {% endif %}
-      {{ updated_env_lines | join('\n') }}
-      {% if not env_file_check.stat.exists %}
-      
-      echo "Environment variables set for {{ environment }} environment"
-      echo "AWS Region: us-east-1"
-      echo "Terraform workspace: {{ environment }}"
-      echo "ROSA token configured"
-      {% endif %}
-    dest: "{{ env_file_path }}"
-    mode: '0755'
+- name: Update environment file with ROSA token only
+  blockinfile:
+    path: "{{ env_file_path }}"
+    block: |
+      # ROSA CLI authentication token
+      export ROSA_TOKEN="{{ validated_rosa_token }}"
+      export TF_VAR_rosa_token="{{ validated_rosa_token }}"
+    marker: "# {mark} ANSIBLE MANAGED ROSA BLOCK"
     backup: yes
+    create: no
 
 - name: Display environment configuration status
   debug:
     msg: |
       ROSA CLI environment configuration completed:
-      - Environment: {{ environment }}
+      - Environment: {{ target_env }}
       - Config file: {{ env_file_path }}
-      - ROSA token added to environment variables
+      - ROSA token added to existing environment file (AWS settings preserved)
       
       To use the environment variables, run:
       source {{ env_file_path }}
@@ -428,47 +407,60 @@ Create `tasks/configure_environment.yml`:
 ```
 
 **Advanced Concepts Demonstrated**:
-- **File Manipulation**: Reading, filtering, and updating existing files
-- **Jinja2 Templating**: Using templates for dynamic content generation
-- **List Processing**: Using filters like `reject()` and `join()`
+- **Role Dependencies**: Ensuring aws-setup role runs first to create environment file
+- **Selective File Updates**: Using `blockinfile` to update only ROSA-specific sections
+- **Configuration Preservation**: Maintaining existing AWS settings while adding ROSA tokens
 - **Backup Strategy**: Using `backup: yes` for safe file modifications
+- **Dependency Validation**: Checking prerequisites before proceeding
 
 ## Usage Examples
 
 ### Example Playbook
 
-Create a playbook to use the role:
+Create a playbook to use the role with proper dependencies:
 
 ```yaml
 ---
 # playbooks/rosa-setup.yml
-- name: Setup ROSA CLI
+- name: Setup ROSA Infrastructure
   hosts: localhost
   gather_facts: yes
-  vars:
-    environment: "{{ env | default('dev') }}"
-    terraform_env_path: "/absolute/path/to/terraform/environments"
   
   roles:
+    # AWS setup must run first to create environment file
+    - role: aws-setup
+      tags: ['aws', 'setup']
+    # ROSA CLI depends on aws-setup role
     - role: rosa-cli
-      tags: rosa-setup
+      tags: ['rosa', 'cli']
 ```
 
 ### Running the Playbook
 
 ```bash
-# Run with default environment (dev)
-ansible-playbook playbooks/rosa-setup.yml
+# Run complete setup (AWS + ROSA) - Recommended
+ansible-playbook playbooks/rosa-setup.yml -e target_environment=dev -e aws_profile=your-profile -e rosa_auth_token="your-token"
 
-# Run with specific environment
-ansible-playbook playbooks/rosa-setup.yml -e "env=prod"
+# Run only ROSA CLI setup (requires aws-setup to have run first)
+ansible-playbook playbooks/rosa-setup.yml --tags rosa -e target_environment=dev -e rosa_auth_token="your-token"
 
-# Run only specific tasks
+# Run only specific ROSA tasks
 ansible-playbook playbooks/rosa-setup.yml --tags rosa-cli-install
+ansible-playbook playbooks/rosa-setup.yml --tags rosa-auth -e rosa_auth_token="your-token"
 
 # Skip authentication if already logged in
-ansible-playbook playbooks/rosa-setup.yml --skip-tags rosa-auth
+ansible-playbook playbooks/rosa-setup.yml --skip-tags rosa-auth -e target_environment=dev
 ```
+
+### Required Variables
+
+**For ROSA CLI Role Only:**
+- `target_environment`: Target environment (dev/test/prod)
+- `rosa_auth_token`: ROSA authentication token
+
+**Important**: The aws-setup role must run first to create the environment file structure.
+
+**Note**: Use `target_environment` instead of `environment` to avoid conflicts with Ansible's built-in environment variable.
 
 ## Key Learning Points
 
@@ -493,6 +485,11 @@ ansible-playbook playbooks/rosa-setup.yml --skip-tags rosa-auth
 - **Path Variables**: Make paths configurable for different environments
 - **Directory Creation**: Ensure parent directories exist before file operations
 
+### 5. Variable Naming
+- **Reserved Names**: Avoid using Ansible reserved variable names like `environment`
+- **Namespace Variables**: Use prefixed variable names like `target_environment` to avoid conflicts
+- **Variable Precedence**: Understand default vs vars vs command-line variable precedence
+
 ## Common Pitfalls and Solutions
 
 ### 1. Path Issues
@@ -510,6 +507,14 @@ ansible-playbook playbooks/rosa-setup.yml --skip-tags rosa-auth
 ### 4. Error Messages
 **Problem**: Cryptic error messages making troubleshooting difficult
 **Solution**: Provide clear, actionable error messages with context
+
+### 5. Variable Naming Conflicts
+**Problem**: Using `environment` variable conflicts with Ansible's built-in environment variable
+**Solution**: Use alternative names like `target_environment` or `env_name` to avoid conflicts
+
+### 6. ROSA CLI Version Checking
+**Problem**: ROSA CLI doesn't support `--output=json` flag for version command
+**Solution**: Use `--client` flag and parse plain text output instead of JSON
 
 ## Extension Exercises
 

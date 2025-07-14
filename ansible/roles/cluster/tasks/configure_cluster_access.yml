@@ -1,0 +1,145 @@
+# Configure cluster access and admin users
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Create operator roles for cluster"
+  shell: |\
+    rosa create operator-roles \
+      --cluster {{ full_cluster_name }} \
+      --mode {{ mode }} \
+      --yes
+  register: operator_roles_result
+  tags:
+    - cluster
+    - cluster-config
+    - operator-roles
+
+- name: "Display operator roles creation result"
+  debug:
+    msg:
+      - "✅ Operator roles created:"
+      - "{{ operator_roles_result.stdout }}"
+  when: operator_roles_result is defined and operator_roles_result.changed
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Create cluster admin user"
+  shell: |\
+    rosa create admin \
+      --cluster {{ full_cluster_name }}
+  register: admin_user_result
+  when: create_admin_user | default(true)
+  tags:
+    - cluster
+    - cluster-config
+    - admin-user
+
+- name: "Extract admin credentials"
+  set_fact:
+    admin_username: "{{ admin_user_result.stdout | regex_search('Username: ([^\n]+)', '\\1') | first }}"
+    admin_password: "{{ admin_user_result.stdout | regex_search('Password: ([^\n]+)', '\\1') | first }}"
+  when: 
+    - create_admin_user | default(true)
+    - admin_user_result is defined 
+    - admin_user_result.changed
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Display admin user credentials"
+  debug:
+    msg:
+      - "👤 Cluster admin user created:"
+      - "  - Username: {{ admin_username }}"
+      - "  - Password: {{ admin_password }}"
+      - "  - Login URL: {{ cluster_console_url }}"
+      - ""
+      - "⚠️  IMPORTANT: Save these credentials securely!"
+  when: 
+    - create_admin_user | default(true)
+    - admin_username is defined
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Create dedicated admin user (if specified)"
+  shell: |\
+    rosa grant user dedicated-admin \
+      --user {{ dedicated_admin_user }} \
+      --cluster {{ full_cluster_name }}
+  register: dedicated_admin_result
+  when: 
+    - dedicated_admin_user is defined
+    - dedicated_admin_user != ""
+  tags:
+    - cluster
+    - cluster-config
+    - dedicated-admin
+
+- name: "Display dedicated admin grant result"
+  debug:
+    msg:
+      - "✅ Dedicated admin access granted:"
+      - "  - User: {{ dedicated_admin_user }}"
+      - "  - Cluster: {{ full_cluster_name }}"
+  when: 
+    - dedicated_admin_result is defined 
+    - dedicated_admin_result.changed
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Setup identity provider (if configured)"
+  shell: |\
+    rosa create idp \
+      --cluster {{ full_cluster_name }} \
+      --type {{ identity_provider.type }} \
+      --name {{ identity_provider.name }} \
+      {% if identity_provider.type == 'github' %}
+      --client-id {{ identity_provider.client_id }} \
+      --client-secret {{ identity_provider.client_secret }} \
+      --organizations {{ identity_provider.organizations | join(',') }}
+      {% elif identity_provider.type == 'google' %}
+      --client-id {{ identity_provider.client_id }} \
+      --client-secret {{ identity_provider.client_secret }} \
+      --hosted-domain {{ identity_provider.hosted_domain }}
+      {% endif %}
+  register: idp_creation_result
+  when: 
+    - identity_provider is defined
+    - identity_provider.enabled | default(false)
+  tags:
+    - cluster
+    - cluster-config
+    - identity-provider
+
+- name: "Display identity provider setup result"
+  debug:
+    msg:
+      - "✅ Identity provider configured:"
+      - "  - Type: {{ identity_provider.type }}"
+      - "  - Name: {{ identity_provider.name }}"
+      - "  - Cluster: {{ full_cluster_name }}"
+  when: 
+    - idp_creation_result is defined 
+    - idp_creation_result.changed
+  tags:
+    - cluster
+    - cluster-config
+
+- name: "Log cluster access configuration completion"
+  debug:
+    msg:
+      - "✅ Cluster access configuration completed:"
+      - "  - Operator roles: Created"
+      - "  - Admin user: {{ 'Created' if create_admin_user | default(true) else 'Skipped' }}"
+      - "  - Dedicated admin: {{ 'Granted to ' + dedicated_admin_user if dedicated_admin_user is defined else 'Not configured' }}"
+      - "  - Identity provider: {{ 'Configured (' + identity_provider.type + ')' if identity_provider is defined and identity_provider.enabled | default(false) else 'Not configured' }}"
+  tags:
+    - cluster
+    - cluster-config

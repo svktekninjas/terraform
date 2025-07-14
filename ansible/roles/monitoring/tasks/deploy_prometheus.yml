@@ -1,0 +1,232 @@
+# Deploy Prometheus monitoring server
+---
+- name: "Deploy Prometheus configuration"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: prometheus-config
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    data:
+      prometheus.yml: |
+        global:
+          scrape_interval: {{ prometheus_config.scrape_interval if prometheus_config is defined else '30s' }}
+          evaluation_interval: {{ prometheus_config.evaluation_interval if prometheus_config is defined else '30s' }}
+          external_labels:
+            cluster: {{ full_cluster_name }}
+            environment: {{ target_environment }}
+            region: {{ cloudwatch_region }}
+
+        rule_files:
+          - "/etc/prometheus/rules/*.yml"
+
+        scrape_configs:
+          - job_name: 'prometheus'
+            static_configs:
+              - targets: ['localhost:9090']
+
+          - job_name: 'node-exporter'
+            kubernetes_sd_configs:
+              - role: endpoints
+                namespaces:
+                  names:
+                    - {{ monitoring_namespace }}
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_name]
+                action: keep
+                regex: node-exporter
+
+          - job_name: 'kubernetes-pods'
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                action: keep
+                regex: true
+              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                action: replace
+                target_label: __metrics_path__
+                regex: (.+)
+
+          - job_name: 'kubernetes-services'
+            kubernetes_sd_configs:
+              - role: service
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+                action: keep
+                regex: true
+              - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+                action: replace
+                target_label: __metrics_path__
+                regex: (.+)
+    EOF
+  register: prometheus_config_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - prometheus
+    - configmap
+
+- name: "Deploy Prometheus StatefulSet"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: prometheus
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    spec:
+      serviceName: prometheus
+      replicas: 1
+      selector:
+        matchLabels:
+          app: prometheus
+      template:
+        metadata:
+          labels:
+            app: prometheus
+            environment: {{ target_environment }}
+        spec:
+          serviceAccountName: prometheus
+          securityContext:
+            runAsNonRoot: true
+          containers:
+          - name: prometheus
+            image: {{ prometheus_image }}
+            args:
+              - '--config.file=/etc/prometheus/prometheus.yml'
+              - '--storage.tsdb.path=/prometheus/'
+              - '--storage.tsdb.retention.time={{ prometheus_retention }}'
+              - '--web.console.libraries=/etc/prometheus/console_libraries'
+              - '--web.console.templates=/etc/prometheus/consoles'
+              - '--web.enable-lifecycle'
+              - '--web.enable-admin-api'
+            ports:
+            - containerPort: 9090
+              name: web
+              protocol: TCP
+            resources:
+              requests:
+                memory: {{ prometheus_config.memory_request if prometheus_config is defined else prometheus_memory_request }}
+                cpu: {{ prometheus_config.cpu_request if prometheus_config is defined else prometheus_cpu_request }}
+              limits:
+                memory: {{ prometheus_config.memory_limit if prometheus_config is defined else prometheus_memory_limit }}
+                cpu: {{ prometheus_config.cpu_limit if prometheus_config is defined else prometheus_cpu_limit }}
+            volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-storage
+              mountPath: /prometheus
+            livenessProbe:
+              httpGet:
+                path: /-/healthy
+                port: 9090
+              initialDelaySeconds: 30
+              timeoutSeconds: 30
+            readinessProbe:
+              httpGet:
+                path: /-/ready
+                port: 9090
+              initialDelaySeconds: 30
+              timeoutSeconds: 30
+          volumes:
+          - name: prometheus-config
+            configMap:
+              name: prometheus-config
+      volumeClaimTemplates:
+      - metadata:
+          name: prometheus-storage
+          labels:
+            app: prometheus
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: {{ prometheus_storage_size }}
+    EOF
+  register: prometheus_deployment_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - prometheus
+    - statefulset
+
+- name: "Create Prometheus Service"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: prometheus
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9090'
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 9090
+        targetPort: 9090
+        name: web
+        protocol: TCP
+      selector:
+        app: prometheus
+    ---
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: prometheus-operated
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+        operated-prometheus: "true"
+    spec:
+      type: ClusterIP
+      clusterIP: None
+      ports:
+      - port: 9090
+        targetPort: 9090
+        name: web
+        protocol: TCP
+      selector:
+        app: prometheus
+    EOF
+  register: prometheus_service_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - prometheus
+    - service
+
+- name: "Display Prometheus deployment results"
+  debug:
+    msg:
+      - "📊 Prometheus deployment completed:"
+      - "  - Namespace: {{ monitoring_namespace }}"
+      - "  - Image: {{ prometheus_image }}"
+      - "  - Storage: {{ prometheus_storage_size }}"
+      - "  - Retention: {{ prometheus_retention }}"
+      - "  - Config: {{ 'Created' if prometheus_config_result.rc == 0 else 'Error' }}"
+      - "  - StatefulSet: {{ 'Created' if prometheus_deployment_result.rc == 0 else 'Error' }}"
+      - "  - Service: {{ 'Created' if prometheus_service_result.rc == 0 else 'Error' }}"
+      - "  - Resources: {{ prometheus_config.memory_request if prometheus_config is defined else prometheus_memory_request }}/{{ prometheus_config.cpu_request if prometheus_config is defined else prometheus_cpu_request }}"
+  tags:
+    - monitoring
+    - prometheus

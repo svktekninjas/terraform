@@ -21,48 +21,58 @@
     echo: no
   register: rosa_token_input
   when: rosa_auth_token == ""
+  tags: rosa
 
 - name: Set ROSA auth token from user input
   set_fact:
     rosa_auth_token: "{{ rosa_token_input.user_input }}"
   when: rosa_auth_token == "" and rosa_token_input.user_input is defined
+  tags: rosa
 
 - name: Validate ROSA auth token is provided
   fail:
     msg: "ROSA authentication token is required to proceed"
   when: rosa_auth_token == ""
+  tags: rosa
 
 - name: Perform ROSA login
   shell: "{{ rosa_cli_binary_name }} login --token={{ rosa_auth_token }}"
   register: rosa_login_result
   no_log: true
   ignore_errors: true
+  tags: rosa
 
 - name: Check if ROSA login was successful
   fail:
     msg: "ROSA login failed. Please verify your authentication token. Error: {{ rosa_login_result.stderr }}"
   when: rosa_login_result.rc != 0
+  tags: rosa
 
 - name: Verify ROSA authentication
   shell: "{{ rosa_cli_binary_name }} whoami"
   register: rosa_whoami_result
   changed_when: false
+  tags: rosa
 
 - name: Display ROSA authentication status
   debug:
     msg: "Successfully authenticated to ROSA as: {{ rosa_whoami_result.stdout }}"
   when: rosa_whoami_result.rc == 0
+  tags: rosa
 
 - name: Verify ROSA permissions
   shell: "{{ rosa_cli_binary_name }} verify permissions"
   register: rosa_permissions_check
   ignore_errors: true
   changed_when: false
+  tags: rosa
 
 - name: Display ROSA permissions status
   debug:
     msg: "ROSA permissions verification: {{ 'PASSED' if rosa_permissions_check.rc == 0 else 'FAILED - Some permissions may be missing' }}"
+  tags: rosa
 
 - name: Store ROSA auth token for environment configuration
   set_fact:
     validated_rosa_token: "{{ rosa_auth_token }}"
+  tags: rosa

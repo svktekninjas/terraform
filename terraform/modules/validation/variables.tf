@@ -75,13 +75,19 @@ variable "https_proxy" {
 # =============================================================================
 
 variable "enable_pre_validation" {
-  description = "Enable pre-deployment validation"
+  description = "Enable pre-deployment validation (region, quotas, ROSA CLI, basic config)"
+  type        = bool
+  default     = true
+}
+
+variable "enable_infra_validation" {
+  description = "Enable infrastructure validation (VPC, subnets, networking after creation)"
   type        = bool
   default     = true
 }
 
 variable "enable_post_validation" {
-  description = "Enable post-deployment validation"
+  description = "Enable post-deployment validation (cluster readiness, components)"
   type        = bool
   default     = true
 }

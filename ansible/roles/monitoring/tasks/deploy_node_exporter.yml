@@ -1,0 +1,192 @@
+# Deploy Node Exporter for node-level metrics collection
+---
+- name: "Deploy Node Exporter DaemonSet"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    spec:
+      selector:
+        matchLabels:
+          app: node-exporter
+      template:
+        metadata:
+          labels:
+            app: node-exporter
+            environment: {{ target_environment }}
+          annotations:
+            prometheus.io/scrape: 'true'
+            prometheus.io/port: '9101'
+            prometheus.io/path: '/metrics'
+        spec:
+          serviceAccountName: node-exporter
+          hostNetwork: {{ node_exporter_config.host_network if node_exporter_config is defined else 'true' }}
+          hostPID: {{ node_exporter_config.host_pid if node_exporter_config is defined else 'true' }}
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          securityContext: {}
+          containers:
+          - name: node-exporter
+            image: {{ node_exporter_image }}
+            args:
+            - '--web.listen-address=:9101'
+            - '--path.procfs=/host/proc'
+            - '--path.sysfs=/host/sys'
+            - '--path.rootfs=/host/root'
+            - '--collector.filesystem.ignored-mount-points=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+)($|/)'
+            - '--collector.filesystem.ignored-fs-types=^(autofs|binfmt_misc|cgroup|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|sysfs|tracefs)$'
+            ports:
+            - containerPort: 9101
+              hostPort: 9101
+              name: metrics
+              protocol: TCP
+            resources:
+              requests:
+                memory: {{ node_exporter_config.memory_request if node_exporter_config is defined else '50Mi' }}
+                cpu: {{ node_exporter_config.cpu_request if node_exporter_config is defined else '50m' }}
+              limits:
+                memory: {{ node_exporter_config.memory_limit if node_exporter_config is defined else '100Mi' }}
+                cpu: {{ node_exporter_config.cpu_limit if node_exporter_config is defined else '100m' }}
+            volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+            livenessProbe:
+              httpGet:
+                path: /metrics
+                port: 9101
+              initialDelaySeconds: 30
+              timeoutSeconds: 10
+            readinessProbe:
+              httpGet:
+                path: /metrics
+                port: 9101
+              initialDelaySeconds: 10
+              timeoutSeconds: 10
+          volumes:
+          - name: proc
+            hostPath:
+              path: /proc
+              type: Directory
+          - name: sys
+            hostPath:
+              path: /sys
+              type: Directory
+          - name: root
+            hostPath:
+              path: /
+              type: Directory
+          tolerations:
+          - effect: NoSchedule
+            operator: Exists
+          - effect: NoExecute
+            operator: Exists
+          - key: CriticalAddonsOnly
+            operator: Exists
+    EOF
+  register: node_exporter_deployment_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - node-exporter
+    - daemonset
+
+- name: "Create Node Exporter Service"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9101'
+        prometheus.io/path: '/metrics'
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 9101
+        targetPort: 9101
+        name: metrics
+        protocol: TCP
+      selector:
+        app: node-exporter
+    EOF
+  register: node_exporter_service_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - node-exporter
+    - service
+
+- name: "Create Node Exporter NetworkPolicy (if enabled)"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    spec:
+      podSelector:
+        matchLabels:
+          app: node-exporter
+      policyTypes:
+      - Ingress
+      ingress:
+      - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+        ports:
+        - protocol: TCP
+          port: 9101
+    EOF
+  register: node_exporter_netpol_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: enable_network_policies | default(false)
+  tags:
+    - monitoring
+    - node-exporter
+    - networkpolicy
+
+- name: "Display Node Exporter deployment results"
+  debug:
+    msg:
+      - "🖥️  Node Exporter deployment completed:"
+      - "  - Namespace: {{ monitoring_namespace }}"
+      - "  - Image: {{ node_exporter_image }}"
+      - "  - Host Network: {{ node_exporter_config.host_network if node_exporter_config is defined else 'true' }}"
+      - "  - Host PID: {{ node_exporter_config.host_pid if node_exporter_config is defined else 'true' }}"
+      - "  - DaemonSet: {{ 'Created' if node_exporter_deployment_result.rc == 0 else 'Error' }}"
+      - "  - Service: {{ 'Created' if node_exporter_service_result.rc == 0 else 'Error' }}"
+      - "  - NetworkPolicy: {{ 'Created' if (enable_network_policies and node_exporter_netpol_result.rc == 0) else 'Skipped' }}"
+      - "  - Resources: {{ node_exporter_config.memory_request if node_exporter_config is defined else '50Mi' }}/{{ node_exporter_config.cpu_request if node_exporter_config is defined else '50m' }}"
+  tags:
+    - monitoring
+    - node-exporter

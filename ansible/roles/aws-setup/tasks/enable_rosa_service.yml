@@ -1,0 +1,115 @@
+# Enable ROSA service in AWS account
+---
+- name: "Check if ROSA service is enabled in AWS account"
+  shell: |
+    rosa verify quota --region {{ aws_region | default('us-east-1') }}
+  register: rosa_service_check
+  changed_when: false
+  failed_when: false
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Display current ROSA service status"
+  debug:
+    msg:
+      - "🔍 ROSA Service Status Check:"
+      - "  - Command exit code: {{ rosa_service_check.rc }}"
+      - "  - Service enabled: {{ rosa_service_check.rc == 0 }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Attempt to enable ROSA service automatically"
+  shell: |
+    rosa create account-roles --mode auto --yes
+  register: rosa_service_enable
+  when: rosa_service_check.rc != 0
+  failed_when: false
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Check ROSA service status after enabling attempt"
+  shell: |
+    rosa verify quota --region {{ aws_region | default('us-east-1') }}
+  register: rosa_service_recheck
+  changed_when: false
+  failed_when: false
+  when: rosa_service_check.rc != 0
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Set ROSA service status facts"
+  set_fact:
+    rosa_service_enabled: "{{ (rosa_service_check.rc == 0) or (rosa_service_recheck.rc == 0 if rosa_service_recheck is defined else false) }}"
+    rosa_service_auto_enabled: "{{ rosa_service_check.rc != 0 and (rosa_service_recheck.rc == 0 if rosa_service_recheck is defined else false) }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Display ROSA service enablement result"
+  debug:
+    msg:
+      - "✅ ROSA service enablement completed:"
+      - "  - Service was already enabled: {{ rosa_service_check.rc == 0 }}"
+      - "  - Service auto-enabled: {{ rosa_service_auto_enabled | default(false) }}"
+      - "  - Current status: {{ 'Enabled' if rosa_service_enabled else 'Requires Manual Setup' }}"
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Provide manual enablement instructions"
+  debug:
+    msg:
+      - "⚠️  ROSA service requires manual enablement:"
+      - ""
+      - "📋 Manual Steps Required:"
+      - "  1. Visit: https://console.aws.amazon.com/rosa/home"
+      - "  2. Click 'Enable OpenShift' button"
+      - "  3. Review and accept the terms of service"
+      - "  4. Complete the service enablement process"
+      - "  5. Re-run this playbook after enablement"
+      - ""
+      - "🔗 Alternative: Run 'rosa whoami' and follow the prompts"
+      - ""
+      - "💡 This is a one-time setup per AWS account"
+  when: not rosa_service_enabled
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Fail if ROSA service is not enabled"
+  fail:
+    msg: |
+      ❌ ROSA service is not enabled in your AWS account.
+      
+      Please visit https://console.aws.amazon.com/rosa/home to enable the service,
+      then re-run this playbook.
+      
+      This is a one-time setup requirement per AWS account.
+  when: 
+    - not rosa_service_enabled
+    - strict_validation | default(true)
+  tags:
+    - aws
+    - rosa-service
+
+- name: "Log ROSA service validation completion"
+  debug:
+    msg:
+      - "✅ ROSA service validation completed successfully"
+      - "  - Account: {{ ansible_env.AWS_PROFILE | default('default') }}"
+      - "  - Region: {{ aws_region | default('us-east-1') }}"
+      - "  - Service Status: Enabled"
+  when: rosa_service_enabled
+  tags:
+    - aws
+    - rosa-service

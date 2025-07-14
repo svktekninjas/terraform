@@ -1,0 +1,80 @@
+# Create the ROSA cluster
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - cluster-create
+
+- name: "Delete existing cluster if requested"
+  shell: |
+    rosa delete cluster {{ full_cluster_name }} \
+      --yes \
+      --watch
+  register: cluster_deletion_result
+  when: delete_existing_cluster | default(false)
+  tags:
+    - cluster
+    - cluster-delete
+
+- name: "Wait for cluster deletion to complete"
+  pause:
+    seconds: 60
+  when: delete_existing_cluster | default(false)
+  tags:
+    - cluster
+    - cluster-delete
+
+- name: "Skip cluster creation if using existing cluster"
+  debug:
+    msg: "✅ Using existing cluster: {{ full_cluster_name }}"
+  when: skip_cluster_creation | default(false)
+  tags:
+    - cluster
+    - cluster-create
+
+- name: "Create ROSA cluster"
+  shell: |
+    rosa create cluster \
+      --cluster-name {{ full_cluster_name }} \
+      --sts \
+      --mode {{ mode }} \
+      --region {{ aws_region }} \
+      --version {{ openshift_version }} \
+      {% if not enable_autoscaling %}--replicas {{ compute_nodes }}{% endif %} \
+      --compute-machine-type {{ compute_machine_type }} \
+      --machine-cidr {{ machine_cidr }} \
+      --service-cidr {{ service_cidr }} \
+      --pod-cidr {{ pod_cidr }} \
+      --host-prefix {{ host_prefix }} \
+      {% if multi_az %}--multi-az{% endif %} \
+      {% if enable_autoscaling %}--enable-autoscaling --min-replicas {{ min_replicas }} --max-replicas {{ max_replicas }}{% endif %} \
+      {% if private_cluster %}--private{% endif %} \
+      {% if privatelink_enabled %}--private-link{% endif %} \
+      {% if enable_fips %}--fips{% endif %} \
+      {% if enable_etcd_encryption %}--etcd-encryption{% endif %} \
+      --oidc-config-id {{ oidc_config_id }} \
+      --yes
+  register: cluster_creation_result
+  when: not (skip_cluster_creation | default(false))
+  tags:
+    - cluster
+    - cluster-create
+
+- name: "Display cluster creation initiation"
+  debug:
+    msg:
+      - "🚀 ROSA cluster creation initiated:"
+      - "  - Cluster name: {{ full_cluster_name }}"
+      - "  - Region: {{ aws_region }}"
+      - "  - OpenShift version: {{ openshift_version }}"
+      - "  - Compute nodes: {{ compute_nodes }}"
+      - "  - Machine type: {{ compute_machine_type }}"
+      - "  - Multi-AZ: {{ multi_az }}"
+      - "  - Autoscaling: {{ enable_autoscaling }}"
+      - "  - Private: {{ private_cluster }}"
+      - "  - PrivateLink: {{ privatelink_enabled }}"
+  when: not (skip_cluster_creation | default(false))
+  tags:
+    - cluster
+    - cluster-create

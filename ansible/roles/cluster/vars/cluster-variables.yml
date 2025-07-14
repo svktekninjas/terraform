@@ -1,0 +1,121 @@
+# Role-specific variables for cluster role
+---
+# Supported OpenShift versions
+supported_openshift_versions:
+  - "4.17.34"
+  - "4.18.19"
+  - "4.19.2"
+
+# Supported AWS regions for ROSA
+supported_aws_regions:
+  - "us-east-1"
+  - "us-east-2"
+  - "us-west-1"
+  - "us-west-2"
+  - "ca-central-1"
+  - "eu-central-1"
+  - "eu-west-1"
+  - "eu-west-2"
+  - "eu-west-3"
+  - "ap-northeast-1"
+  - "ap-northeast-2"
+  - "ap-southeast-1"
+  - "ap-southeast-2"
+  - "ap-south-1"
+  - "sa-east-1"
+
+# Supported EC2 instance types for ROSA worker nodes (tested and verified)
+supported_compute_machine_types:
+  # M5n instances (recommended - enhanced networking)
+  - "m5n.large"      # 2 vCPU, 8 GB RAM - minimum for dev
+  - "m5n.xlarge"     # 4 vCPU, 16 GB RAM - recommended for dev/test
+  - "m5n.2xlarge"    # 8 vCPU, 32 GB RAM - recommended for production
+  - "m5n.4xlarge"    # 16 vCPU, 64 GB RAM - high-performance workloads
+  - "m5n.8xlarge"    # 32 vCPU, 128 GB RAM
+  - "m5n.12xlarge"   # 48 vCPU, 192 GB RAM
+  - "m5n.16xlarge"   # 64 vCPU, 256 GB RAM
+  - "m5n.24xlarge"   # 96 vCPU, 384 GB RAM
+  # M5 instances (standard)
+  - "m5.xlarge"      # 4 vCPU, 16 GB RAM
+  - "m5.2xlarge"     # 8 vCPU, 32 GB RAM
+  - "m5.4xlarge"     # 16 vCPU, 64 GB RAM
+  - "m5.8xlarge"     # 32 vCPU, 128 GB RAM
+  - "m5.12xlarge"    # 48 vCPU, 192 GB RAM
+  - "m5.16xlarge"    # 64 vCPU, 256 GB RAM
+  - "m5.24xlarge"    # 96 vCPU, 384 GB RAM
+  # C5 instances (compute optimized)
+  - "c5.xlarge"      # 4 vCPU, 8 GB RAM
+  - "c5.2xlarge"     # 8 vCPU, 16 GB RAM
+  - "c5.4xlarge"     # 16 vCPU, 32 GB RAM
+  - "c5.9xlarge"     # 36 vCPU, 72 GB RAM
+  - "c5.12xlarge"    # 48 vCPU, 96 GB RAM
+  - "c5.18xlarge"    # 72 vCPU, 144 GB RAM
+  - "c5.24xlarge"    # 96 vCPU, 192 GB RAM
+  # R5 instances (memory optimized)
+  - "r5.xlarge"      # 4 vCPU, 32 GB RAM
+  - "r5.2xlarge"     # 8 vCPU, 64 GB RAM
+  - "r5.4xlarge"     # 16 vCPU, 128 GB RAM
+  - "r5.8xlarge"     # 32 vCPU, 256 GB RAM
+  - "r5.12xlarge"    # 48 vCPU, 384 GB RAM
+  - "r5.16xlarge"    # 64 vCPU, 512 GB RAM
+  - "r5.24xlarge"    # 96 vCPU, 768 GB RAM
+
+# Instance types known to NOT work with ROSA
+unsupported_instance_types:
+  - "m5.large"       # Too small for ROSA requirements
+  - "t3.large"       # Burstable instances not supported
+  - "t3.xlarge"      # Burstable instances not supported
+
+# Valid storage types
+supported_storage_types:
+  - "gp3"
+  - "gp2"
+  - "io1"
+  - "io2"
+
+# Valid environment names
+valid_environments:
+  - "dev"
+  - "test"
+  - "prod"
+
+# Cluster state definitions
+cluster_states:
+  - "installing"
+  - "pending"
+  - "ready"
+  - "error"
+  - "uninstalling"
+  - "install_completed"
+
+# ROSA CLI commands and options
+rosa_commands:
+  create_account_roles: "rosa create account-roles"
+  create_oidc_config: "rosa create oidc-config"
+  create_cluster: "rosa create cluster"
+  delete_cluster: "rosa delete cluster"
+  describe_cluster: "rosa describe cluster"
+  list_clusters: "rosa list clusters"
+
+# Default timeout values (in seconds)
+timeout_values:
+  cluster_creation: 3600     # 1 hour
+  cluster_deletion: 1800     # 30 minutes  
+  cluster_ready_check: 300   # 5 minutes
+  oidc_creation: 600         # 10 minutes
+  account_roles: 600         # 10 minutes
+
+# Minimum resource requirements by environment
+minimum_requirements:
+  dev:
+    compute_nodes: 2
+    vcpu_quota: 25
+    availability_zones: 1
+  test:
+    compute_nodes: 3
+    vcpu_quota: 100
+    availability_zones: 2
+  prod:
+    compute_nodes: 3
+    vcpu_quota: 200
+    availability_zones: 3

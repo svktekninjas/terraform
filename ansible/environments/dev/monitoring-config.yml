@@ -1,0 +1,68 @@
+# Development Environment Monitoring Configuration
+---
+# Environment Configuration
+environment_name: "dev"
+environment_suffix: "dev"
+monitoring_namespace: "monitoring"
+full_cluster_name: "rosa-dev"
+cluster_name_prefix: "rosa"
+
+# CloudWatch Configuration
+enable_cloudwatch_insights: true
+cloudwatch_log_group: "/rosa/cluster/{{ cluster_name_prefix }}-{{ environment_suffix }}"
+cloudwatch_log_retention_days: 7
+cloudwatch_log_stream_prefix: "dev-node-"
+
+# Prometheus Configuration
+prometheus_config:
+  namespace: "monitoring"
+  storage_size: "5Gi"
+  retention_period: "7d"
+  memory_request: "200Mi"
+  memory_limit: "400Mi"
+  cpu_request: "50m"
+  cpu_limit: "100m"
+  scrape_interval: "30s"
+  evaluation_interval: "30s"
+
+# Grafana Configuration
+grafana_config:
+  namespace: "monitoring"
+  admin_user: "admin"
+  admin_password: "dev-admin123"
+  memory_request: "100Mi"
+  memory_limit: "200Mi"
+  cpu_request: "50m"
+  cpu_limit: "100m"
+  expose_route: true
+  hostname_suffix: "dev.monitoring"
+
+# Node Exporter Configuration
+node_exporter_config:
+  namespace: "monitoring"
+  memory_request: "30Mi"
+  memory_limit: "60Mi"
+  cpu_request: "25m"
+  cpu_limit: "50m"
+  host_network: true
+  host_pid: true
+
+# Alerting Configuration
+alerting_config:
+  enable_alerts: true
+  alert_severity: "warning"
+  webhook_url: ""
+  slack_channel: "#dev-alerts"
+
+# Log Forwarding Configuration - Using OpenShift Native Log Forwarding
+openshift_log_forwarding:
+  enable_cluster_logging: true
+  cloudwatch_region: "us-east-1"
+  cloudwatch_log_group: "/rosa/cluster/rosa-dev"
+  cloudwatch_retention_days: 7
+
+# Development specific settings
+dev_settings:
+  debug_mode: true
+  verbose_logging: true
+  enable_debug_endpoints: true

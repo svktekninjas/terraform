@@ -1,0 +1,63 @@
+# Production Environment Variables for ROSA Validation
+---
+environment_name: "prod"
+
+# AWS Region Configuration
+aws_region: "us-east-1"
+supported_aws_regions:
+  - "us-east-1"
+  - "us-east-2"
+  - "us-west-1"
+  - "us-west-2"
+  - "ca-central-1"
+  - "eu-central-1"
+  - "eu-west-1"
+  - "eu-west-2"
+  - "eu-west-3"
+  - "ap-northeast-1"
+  - "ap-northeast-2"
+  - "ap-southeast-1"
+  - "ap-southeast-2"
+  - "ap-south-1"
+  - "sa-east-1"
+
+# Availability Zone Requirements
+required_availability_zones: 3
+validate_availability_zones: true
+
+# Cluster Configuration
+cluster_name: "rosa-cluster"
+openshift_version: "4.14"
+instance_type: "m5.2xlarge"
+supported_instance_types:
+  - "m5.large"
+  - "m5.xlarge"
+  - "m5.2xlarge"
+  - "c5.large"
+  - "c5.xlarge"
+  - "r5.large"
+  - "r5.xlarge"
+
+# Autoscaling Configuration
+enable_autoscaling: true
+min_replicas: 5
+max_replicas: 15
+
+# AWS Service Quotas
+min_vcpu_quota: 200
+validate_service_quotas: true
+
+# ROSA CLI Validation
+validate_rosa_cli: true
+validate_aws_cli: true
+validate_aws_credentials: true
+verify_rosa_quota: true
+verify_aws_permissions: true
+
+# Validation Toggles
+strict_validation: true
+fail_fast: true
+
+# Logging and Debug
+enable_debug_logging: false
+log_validation_results: true

@@ -1,0 +1,75 @@
+# Monitor ROSA cluster creation status
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Monitor cluster creation status"
+  shell: rosa describe cluster {{ full_cluster_name }} --output json
+  register: cluster_status_check
+  until: 
+    - cluster_status_check.rc == 0
+    - (cluster_status_check.stdout | from_json).state == "ready"
+  retries: "{{ cluster_creation_timeout_minutes | default(60) }}"
+  delay: 60
+  changed_when: false
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Display cluster status updates"
+  debug:
+    msg:
+      - "⏳ Cluster status: {{ (cluster_status_check.stdout | from_json).state }}"
+      - "📊 Progress: {{ (cluster_status_check.stdout | from_json).status | default('In progress') }}"
+      - "🕐 Elapsed time: {{ ansible_date_time.epoch | int - cluster_creation_start_time | default(ansible_date_time.epoch | int) | int }} seconds"
+  loop: "{{ range(0, cluster_creation_timeout_minutes | default(60)) | list }}"
+  when: 
+    - cluster_status_check is defined
+    - (cluster_status_check.stdout | from_json).state != "ready"
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Get final cluster information"
+  shell: rosa describe cluster {{ full_cluster_name }} --output json
+  register: final_cluster_info
+  changed_when: false
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Extract cluster endpoints and details"
+  set_fact:
+    cluster_api_url: "{{ (final_cluster_info.stdout | from_json).api.url }}"
+    cluster_console_url: "{{ (final_cluster_info.stdout | from_json).console.url }}"
+    cluster_state: "{{ (final_cluster_info.stdout | from_json).state }}"
+    cluster_version: "{{ (final_cluster_info.stdout | from_json).version.raw_id }}"
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Display cluster ready status"
+  debug:
+    msg:
+      - "🎉 ROSA cluster is ready!"
+      - "  - Cluster name: {{ full_cluster_name }}"
+      - "  - State: {{ cluster_state }}"
+      - "  - Version: {{ cluster_version }}"
+      - "  - API URL: {{ cluster_api_url }}"
+      - "  - Console URL: {{ cluster_console_url }}"
+      - "  - Region: {{ aws_region }}"
+  when: cluster_state == "ready"
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: "Fail if cluster creation timeout"
+  fail:
+    msg: "❌ Cluster creation timed out after {{ cluster_creation_timeout_minutes | default(60) }} minutes"
+  when: cluster_state != "ready"
+  tags:
+    - cluster
+    - cluster-monitor

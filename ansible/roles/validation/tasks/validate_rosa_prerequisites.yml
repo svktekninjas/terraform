@@ -1,0 +1,40 @@
+# ROSA-specific prerequisites validation tasks
+# Note: AWS CLI, ROSA CLI installation, and admin access are validated by other roles
+---
+- name: "Verify ROSA quota for environment"
+  shell: rosa verify quota --region={{ aws_region }}
+  register: rosa_quota_result
+  changed_when: false
+  failed_when: false
+  when: verify_rosa_quota | default(false)
+
+- name: "Fail if ROSA quota verification failed"
+  fail:
+    msg: "❌ ROSA quota verification failed for {{ environment_name }} environment in region {{ aws_region }}"
+  when: 
+    - verify_rosa_quota | default(false)
+    - rosa_quota_result.rc != 0
+
+- name: "Verify ROSA-specific AWS permissions"
+  shell: rosa verify permissions
+  register: rosa_permissions_result
+  changed_when: false
+  failed_when: false
+  when: verify_aws_permissions | default(false)
+
+- name: "Fail if ROSA AWS permissions verification failed"
+  fail:
+    msg: "❌ ROSA-specific AWS permissions verification failed for {{ environment_name }} environment"
+  when: 
+    - verify_aws_permissions | default(false)
+    - rosa_permissions_result.rc != 0
+
+- name: "Log ROSA prerequisites validation results"
+  debug:
+    msg:
+      - "✅ ROSA prerequisites validation passed:"
+      - "  - ROSA quota verified: {{ verify_rosa_quota | default(false) }}"
+      - "  - ROSA AWS permissions verified: {{ verify_aws_permissions | default(false) }}"
+      - "  - Environment: {{ environment_name }}"
+      - "  - Region: {{ aws_region }}"
+  when: enable_debug_logging | default(false)

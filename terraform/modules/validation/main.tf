@@ -1,5 +1,6 @@
 # Validation Module for ROSA CLI Integration
 # Validates prerequisites and performs post-deployment checks
+# Uses tags to enable phased execution: pre, infra, post
 
 # =============================================================================
 # DATA SOURCES
@@ -16,40 +17,53 @@ data "aws_availability_zones" "available" {
 # =============================================================================
 
 locals {
-  # Validation results
-  validation_results = {
-    region_valid                = contains(var.supported_regions, data.aws_region.current.name)
-    az_count_sufficient         = length(data.aws_availability_zones.available.names) >= 3
-    vpc_cidr_valid             = var.vpc_cidr != "" ? can(cidrhost(var.vpc_cidr, 0)) : true
-    subnet_count_sufficient    = length(var.subnet_ids) >= 2 || length(var.subnet_ids) == 0
-    cluster_name_valid         = can(regex("^[a-z0-9-]+$", var.cluster_name)) && length(var.cluster_name) <= 54
-    openshift_version_valid    = can(regex("^4\\.[0-9]+$", var.openshift_version))
-    instance_type_valid        = contains(var.supported_instance_types, var.compute_machine_type)
-    autoscaling_config_valid   = !var.enable_autoscaling || (var.min_replicas <= var.max_replicas)
-    networking_config_valid    = !var.private_link || var.private
-    proxy_config_valid         = !var.enable_proxy || (var.http_proxy != "" || var.https_proxy != "")
+  # PRE-VALIDATION: Basic configuration and prerequisites (no infrastructure required)
+  pre_validation_results = {
+    region_valid            = contains(var.supported_regions, data.aws_region.current.name)
+    az_count_sufficient     = length(data.aws_availability_zones.available.names) >= 3
+    cluster_name_valid      = can(regex("^[a-z0-9-]+$", var.cluster_name)) && length(var.cluster_name) <= 54
+    openshift_version_valid = can(regex("^4\\.[0-9]+$", var.openshift_version))
+    instance_type_valid     = contains(var.supported_instance_types, var.compute_machine_type)
+    autoscaling_config_valid = !var.enable_autoscaling || (var.min_replicas <= var.max_replicas)
   }
+  
+  # INFRA-VALIDATION: Infrastructure configuration (after VPC/subnets created)
+  infra_validation_results = {
+    vpc_cidr_valid          = var.vpc_cidr != "" ? can(cidrhost(var.vpc_cidr, 0)) : true
+    subnet_count_sufficient = length(var.subnet_ids) >= 2 || length(var.subnet_ids) == 0
+    networking_config_valid = !var.private_link || var.private
+    proxy_config_valid      = !var.enable_proxy || (var.http_proxy != "" || var.https_proxy != "")
+  }
+  
+  # Combined validation results for backward compatibility
+  validation_results = merge(local.pre_validation_results, local.infra_validation_results)
   
   # Overall validation status
   all_validations_passed = alltrue(values(local.validation_results))
   
-  # Failed validations
-  failed_validations = [
-    for key, value in local.validation_results : key if !value
+  # Failed validations by phase
+  failed_pre_validations = [
+    for key, value in local.pre_validation_results : key if !value
   ]
+  
+  failed_infra_validations = [
+    for key, value in local.infra_validation_results : key if !value
+  ]
+  
+  failed_validations = concat(local.failed_pre_validations, local.failed_infra_validations)
 }
 
 # =============================================================================
-# PRE-DEPLOYMENT VALIDATION
+# PRE-VALIDATION PHASE - Execute with: terraform apply -target=module.validation.null_resource.pre_*
 # =============================================================================
 
 # Check AWS region support
-resource "null_resource" "validate_region" {
+resource "null_resource" "pre_validate_region" {
   count = var.enable_pre_validation ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.region_valid
+      condition     = local.pre_validation_results.region_valid
       error_message = "Region ${data.aws_region.current.name} is not supported for ROSA. Supported regions: ${join(", ", var.supported_regions)}"
     }
   }
@@ -57,15 +71,20 @@ resource "null_resource" "validate_region" {
   triggers = {
     region = data.aws_region.current.name
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "region"
+  }
 }
 
 # Check availability zones
-resource "null_resource" "validate_availability_zones" {
+resource "null_resource" "pre_validate_availability_zones" {
   count = var.enable_pre_validation ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.az_count_sufficient
+      condition     = local.pre_validation_results.az_count_sufficient
       error_message = "Region must have at least 3 availability zones. Current region has ${length(data.aws_availability_zones.available.names)} AZs."
     }
   }
@@ -73,25 +92,30 @@ resource "null_resource" "validate_availability_zones" {
   triggers = {
     az_count = length(data.aws_availability_zones.available.names)
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "availability_zones"
+  }
 }
 
 # Check cluster configuration
-resource "null_resource" "validate_cluster_config" {
+resource "null_resource" "pre_validate_cluster_config" {
   count = var.enable_pre_validation ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.cluster_name_valid
+      condition     = local.pre_validation_results.cluster_name_valid
       error_message = "Cluster name must contain only lowercase letters, numbers, and hyphens, and be <= 54 characters."
     }
     
     precondition {
-      condition     = local.validation_results.openshift_version_valid
+      condition     = local.pre_validation_results.openshift_version_valid
       error_message = "OpenShift version must be in format 4.x (e.g., 4.14)."
     }
     
     precondition {
-      condition     = local.validation_results.instance_type_valid
+      condition     = local.pre_validation_results.instance_type_valid
       error_message = "Compute machine type ${var.compute_machine_type} is not supported. Supported types: ${join(", ", var.supported_instance_types)}"
     }
   }
@@ -101,25 +125,34 @@ resource "null_resource" "validate_cluster_config" {
     openshift_version    = var.openshift_version
     compute_machine_type = var.compute_machine_type
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "cluster_config"
+  }
 }
 
-# Check networking configuration
-resource "null_resource" "validate_networking" {
-  count = var.enable_pre_validation ? 1 : 0
+# =============================================================================
+# INFRA-VALIDATION PHASE - Execute with: terraform apply -target=module.validation.null_resource.infra_*
+# =============================================================================
+
+# Check networking configuration (after VPC/subnets are created)
+resource "null_resource" "infra_validate_networking" {
+  count = var.enable_infra_validation ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.vpc_cidr_valid
+      condition     = local.infra_validation_results.vpc_cidr_valid
       error_message = "VPC CIDR must be a valid CIDR block."
     }
     
     precondition {
-      condition     = local.validation_results.subnet_count_sufficient
+      condition     = local.infra_validation_results.subnet_count_sufficient
       error_message = "Must provide at least 2 subnet IDs for ROSA cluster."
     }
     
     precondition {
-      condition     = local.validation_results.networking_config_valid
+      condition     = local.infra_validation_results.networking_config_valid
       error_message = "PrivateLink can only be enabled when private is true."
     }
   }
@@ -130,15 +163,20 @@ resource "null_resource" "validate_networking" {
     private       = var.private
     private_link  = var.private_link
   }
+  
+  tags = {
+    ValidationPhase = "infra"
+    ValidationType  = "networking"
+  }
 }
 
 # Check autoscaling configuration
-resource "null_resource" "validate_autoscaling" {
+resource "null_resource" "pre_validate_autoscaling" {
   count = var.enable_pre_validation && var.enable_autoscaling ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.autoscaling_config_valid
+      condition     = local.pre_validation_results.autoscaling_config_valid
       error_message = "min_replicas (${var.min_replicas}) must be less than or equal to max_replicas (${var.max_replicas})."
     }
   }
@@ -148,15 +186,20 @@ resource "null_resource" "validate_autoscaling" {
     min_replicas       = var.min_replicas
     max_replicas       = var.max_replicas
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "autoscaling"
+  }
 }
 
 # Check proxy configuration
-resource "null_resource" "validate_proxy" {
-  count = var.enable_pre_validation && var.enable_proxy ? 1 : 0
+resource "null_resource" "infra_validate_proxy" {
+  count = var.enable_infra_validation && var.enable_proxy ? 1 : 0
   
   lifecycle {
     precondition {
-      condition     = local.validation_results.proxy_config_valid
+      condition     = local.infra_validation_results.proxy_config_valid
       error_message = "http_proxy or https_proxy must be specified when enable_proxy is true."
     }
   }
@@ -166,15 +209,16 @@ resource "null_resource" "validate_proxy" {
     http_proxy    = var.http_proxy
     https_proxy   = var.https_proxy
   }
+  
+  tags = {
+    ValidationPhase = "infra"
+    ValidationType  = "proxy"
+  }
 }
 
-# =============================================================================
-# AWS QUOTA VALIDATION
-# =============================================================================
-
-# Validate AWS service quotas (if enabled)
-resource "null_resource" "validate_quotas" {
-  count = var.enable_quota_validation ? 1 : 0
+# Validate AWS service quotas (PRE-VALIDATION phase)
+resource "null_resource" "pre_validate_quotas" {
+  count = var.enable_pre_validation && var.enable_quota_validation ? 1 : 0
   
   provisioner "local-exec" {
     command = <<-EOT
@@ -201,15 +245,16 @@ resource "null_resource" "validate_quotas" {
     region         = data.aws_region.current.name
     min_vcpu_quota = var.min_vcpu_quota
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "quotas"
+  }
 }
 
-# =============================================================================
-# ROSA CLI VALIDATION
-# =============================================================================
-
-# Validate ROSA CLI prerequisites
-resource "null_resource" "validate_rosa_cli" {
-  count = var.enable_rosa_validation ? 1 : 0
+# Validate ROSA CLI prerequisites (PRE-VALIDATION phase)
+resource "null_resource" "pre_validate_rosa_cli" {
+  count = var.enable_pre_validation && var.enable_rosa_validation ? 1 : 0
   
   provisioner "local-exec" {
     command = <<-EOT
@@ -252,14 +297,19 @@ resource "null_resource" "validate_rosa_cli" {
     verify_rosa_quota        = var.verify_rosa_quota
     verify_aws_permissions   = var.verify_aws_permissions
   }
+  
+  tags = {
+    ValidationPhase = "pre"
+    ValidationType  = "rosa_cli"
+  }
 }
 
 # =============================================================================
-# POST-DEPLOYMENT VALIDATION
+# POST-VALIDATION PHASE - Execute with: terraform apply -target=module.validation.null_resource.post_*
 # =============================================================================
 
-# Wait for cluster to be ready (if enabled)
-resource "null_resource" "wait_for_cluster" {
+# Wait for cluster to be ready (POST-VALIDATION phase)
+resource "null_resource" "post_wait_for_cluster" {
   count = var.enable_post_validation ? 1 : 0
   
   depends_on = [var.cluster_creation_dependency]
@@ -305,13 +355,18 @@ resource "null_resource" "wait_for_cluster" {
     cluster_name = var.cluster_name
     timestamp    = timestamp()
   }
+  
+  tags = {
+    ValidationPhase = "post"
+    ValidationType  = "cluster_readiness"
+  }
 }
 
-# Validate cluster components
-resource "null_resource" "validate_cluster_components" {
+# Validate cluster components (POST-VALIDATION phase)
+resource "null_resource" "post_validate_cluster_components" {
   count = var.enable_post_validation ? 1 : 0
   
-  depends_on = [null_resource.wait_for_cluster]
+  depends_on = [null_resource.post_wait_for_cluster]
   
   provisioner "local-exec" {
     command = <<-EOT
@@ -356,5 +411,10 @@ resource "null_resource" "validate_cluster_components" {
   triggers = {
     cluster_name    = var.cluster_name
     min_node_count  = var.min_node_count
+  }
+  
+  tags = {
+    ValidationPhase = "post"
+    ValidationType  = "cluster_components"
   }
 }

@@ -1,0 +1,65 @@
+# Main tasks file for cluster role - orchestrates all cluster creation tasks
+---
+- name: "Load cluster variables"
+  include_vars: cluster-variables.yml
+  tags:
+    - cluster
+    - always
+
+- name: "Start ROSA Cluster Creation for {{ target_environment }} environment"
+  debug:
+    msg: "🚀 Starting ROSA Cluster Creation for {{ target_environment }} environment"
+  tags:
+    - cluster
+
+- name: Include existing cluster check
+  include_tasks: check_existing_cluster.yml
+  tags:
+    - cluster
+    - cluster-check
+
+- name: Include account roles creation
+  include_tasks: create_account_roles.yml
+  tags:
+    - cluster
+    - cluster-setup
+    - account-roles
+
+- name: Include OIDC configuration creation
+  include_tasks: create_oidc_configuration.yml
+  tags:
+    - cluster
+    - cluster-setup
+    - oidc-config
+
+- name: Include ROSA cluster creation
+  include_tasks: create_rosa_cluster.yml
+  tags:
+    - cluster
+    - cluster-create
+
+- name: Include cluster status monitoring
+  include_tasks: monitor_cluster_status.yml
+  when: wait_for_cluster_ready | default(true)
+  tags:
+    - cluster
+    - cluster-monitor
+
+- name: Include cluster access configuration
+  include_tasks: configure_cluster_access.yml
+  when: create_admin_user | default(true)
+  tags:
+    - cluster
+    - cluster-config
+
+- name: Include environment file updates
+  include_tasks: update_cluster_environment.yml
+  tags:
+    - cluster
+    - cluster-env
+
+- name: "Complete ROSA Cluster Creation for {{ target_environment }} environment"
+  debug:
+    msg: "✅ ROSA Cluster Creation completed successfully for {{ target_environment }} environment!"
+  tags:
+    - cluster

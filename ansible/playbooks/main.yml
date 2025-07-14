@@ -14,7 +14,11 @@
     - role: rosa-cli
       tags: ['rosa', 'cli']
     - role: validation
-      tags: ['validation', 'test']
+      tags: ['validation', 'pre-checks']
+    - role: cluster
+      tags: ['cluster', 'rosa-cluster']
+    - role: monitoring
+      tags: ['monitoring', 'observability']
   
   post_tasks:
     - name: Display playbook completion

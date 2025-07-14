@@ -1,0 +1,23 @@
+# Availability Zones validation tasks
+---
+- name: "Get available availability zones"
+  shell: aws ec2 describe-availability-zones --query 'length(AvailabilityZones[?State==`available`])' --output text
+  register: available_az_count
+  changed_when: false
+  failed_when: available_az_count.rc != 0
+
+- name: "Convert AZ count to integer"
+  set_fact:
+    az_count: "{{ available_az_count.stdout | int }}"
+
+- name: "Validate sufficient availability zones for {{ environment_name }} environment"
+  assert:
+    that:
+      - az_count | int >= required_availability_zones | int
+    fail_msg: "❌ Insufficient AZs: {{ az_count }} (required: {{ required_availability_zones }}) for {{ environment_name }} environment"
+    success_msg: "✅ Sufficient AZs: {{ az_count }} (required: {{ required_availability_zones }}) for {{ environment_name }} environment"
+
+- name: "Log availability zones validation result"
+  debug:
+    msg: "✅ Availability Zones validation passed: {{ az_count }} AZs available (required: {{ required_availability_zones }})"
+  when: enable_debug_logging | default(false)

@@ -114,7 +114,8 @@ module "validation" {
   
   # Validation settings
   enable_pre_validation   = true
-  enable_post_validation  = true
+  enable_infra_validation = false  # Disabled in initial pre-validation call
+  enable_post_validation  = false  # Disabled in initial pre-validation call
   enable_quota_validation = true
   enable_rosa_validation  = true
   
@@ -364,6 +365,7 @@ module "post_validation" {
   
   # Post-deployment validation only
   enable_pre_validation      = false
+  enable_infra_validation    = false
   enable_post_validation     = true
   enable_quota_validation    = false
   enable_rosa_validation     = false

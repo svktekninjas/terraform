@@ -1,0 +1,66 @@
+# Production Environment - ROSA Cluster Configuration
+---
+# Cluster Basic Configuration
+cluster_name_prefix: "rosa-cluster"
+cluster_description: "Production ROSA cluster for critical production workloads"
+openshift_version: "4.18.0"
+
+# AWS Configuration
+aws_region: "us-east-1"
+availability_zones:
+  - "us-east-1a"
+  - "us-east-1b"
+  - "us-east-1c"
+multi_az: true
+
+# STS Configuration
+sts_enabled: true
+mode: "auto"
+operator_roles_prefix_auto: true
+
+# Network Configuration
+machine_cidr: "10.2.0.0/16"
+service_cidr: "172.32.0.0/16"
+pod_cidr: "10.130.0.0/14"
+host_prefix: 23
+
+# Compute Configuration
+compute_nodes: 5
+compute_machine_type: "m5.2xlarge"
+enable_autoscaling: true
+min_replicas: 5
+max_replicas: 15
+
+# Storage Configuration
+storage_type: "gp3"
+storage_size: "1000"
+
+# Security Configuration
+private_cluster: true
+privatelink_enabled: true
+additional_security_groups: []
+
+# Monitoring and Logging
+enable_monitoring: true
+enable_logging: true
+
+# Cluster Features
+enable_fips: true
+enable_etcd_encryption: true
+
+# Cluster Access
+create_admin_user: true
+admin_username: "cluster-admin"
+
+# Backup and Maintenance
+disable_workload_monitoring: false
+cluster_auto_upgrade: true
+
+# Production specific settings
+destroy_cluster_on_completion: false
+wait_for_cluster_ready: true
+cluster_ready_timeout: 7200  # 2 hours
+
+# Cost Optimization
+enable_spot_instances: false
+hibernate_cluster: false

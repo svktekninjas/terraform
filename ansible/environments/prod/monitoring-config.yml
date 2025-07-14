@@ -1,0 +1,69 @@
+# Production Environment Monitoring Configuration
+---
+# Environment Configuration
+environment_name: "prod"
+environment_suffix: "prod"
+
+# CloudWatch Configuration
+enable_cloudwatch_insights: true
+cloudwatch_log_group: "/rosa/cluster/{{ cluster_name_prefix }}-{{ environment_suffix }}"
+cloudwatch_log_retention_days: 30
+cloudwatch_log_stream_prefix: "prod-node-"
+
+# Prometheus Configuration
+prometheus_config:
+  namespace: "monitoring"
+  storage_size: "50Gi"
+  retention_period: "30d"
+  memory_request: "1Gi"
+  memory_limit: "2Gi"
+  cpu_request: "200m"
+  cpu_limit: "500m"
+  scrape_interval: "15s"
+  evaluation_interval: "15s"
+
+# Grafana Configuration
+grafana_config:
+  namespace: "monitoring"
+  admin_user: "admin"
+  admin_password: "prod-secure789"
+  memory_request: "300Mi"
+  memory_limit: "600Mi"
+  cpu_request: "150m"
+  cpu_limit: "300m"
+  expose_route: true
+  hostname_suffix: "prod.monitoring"
+
+# Node Exporter Configuration
+node_exporter_config:
+  namespace: "monitoring"
+  memory_request: "100Mi"
+  memory_limit: "200Mi"
+  cpu_request: "100m"
+  cpu_limit: "200m"
+  host_network: true
+  host_pid: true
+
+# Alerting Configuration
+alerting_config:
+  enable_alerts: true
+  alert_severity: "critical"
+  webhook_url: "https://hooks.slack.com/services/YOUR/PROD/WEBHOOK"
+  slack_channel: "#prod-alerts"
+  pagerduty_integration: true
+
+# Log Forwarding Configuration
+log_forwarding:
+  enable_cluster_logging: true
+  buffer_size: "20MB"
+  flush_interval: "30s"
+  log_level: "warn"
+
+# Production specific settings
+prod_settings:
+  debug_mode: false
+  verbose_logging: false
+  enable_debug_endpoints: false
+  high_availability: true
+  backup_enabled: true
+  security_hardened: true

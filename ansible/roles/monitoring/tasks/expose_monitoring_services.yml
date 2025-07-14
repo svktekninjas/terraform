@@ -1,0 +1,165 @@
+# Expose monitoring services via OpenShift routes
+---
+- name: "Create Grafana route"
+  shell: |
+    oc expose service grafana -n {{ monitoring_namespace }} \
+      --hostname=grafana-{{ full_cluster_name }}-{{ target_environment }}.{{ cloudwatch_region }}.elb.amazonaws.com \
+      --port=3000
+  register: grafana_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: expose_grafana | default(true)
+  tags:
+    - monitoring
+    - routes
+    - grafana
+
+- name: "Create Prometheus route"
+  shell: |
+    oc expose service prometheus -n {{ monitoring_namespace }} \
+      --hostname=prometheus-{{ full_cluster_name }}-{{ target_environment }}.{{ cloudwatch_region }}.elb.amazonaws.com \
+      --port=9090
+  register: prometheus_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: expose_prometheus | default(true)
+  tags:
+    - monitoring
+    - routes
+    - prometheus
+
+- name: "Get Grafana route URL"
+  shell: |
+    oc get route grafana -n {{ monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: grafana_url_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: expose_grafana | default(true)
+  tags:
+    - monitoring
+    - routes
+    - grafana
+
+- name: "Get Prometheus route URL"
+  shell: |
+    oc get route prometheus -n {{ monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: prometheus_url_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: expose_prometheus | default(true)
+  tags:
+    - monitoring
+    - routes
+    - prometheus
+
+- name: "Create monitoring services ingress (alternative to routes)"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: monitoring-ingress
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: monitoring
+        environment: {{ target_environment }}
+      annotations:
+        kubernetes.io/ingress.class: "nginx"
+        nginx.ingress.kubernetes.io/rewrite-target: /
+    spec:
+      rules:
+      - host: grafana-{{ target_environment }}.{{ full_cluster_name }}.local
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+      - host: prometheus-{{ target_environment }}.{{ full_cluster_name }}.local
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus
+                port:
+                  number: 9090
+    EOF
+  register: monitoring_ingress_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: not (expose_grafana | default(true)) and not (expose_prometheus | default(true))
+  tags:
+    - monitoring
+    - ingress
+    - alternative
+
+- name: "Create monitoring service monitor for route health"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: monitoring-health
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: monitoring-health
+        environment: {{ target_environment }}
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8080'
+        prometheus.io/path: '/health'
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 8080
+        targetPort: 8080
+        name: health
+        protocol: TCP
+      selector:
+        app: monitoring-health
+    EOF
+  register: health_service_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - health
+    - service
+
+- name: "Display monitoring services exposure results"
+  debug:
+    msg:
+      - "🌐 Monitoring services exposure completed:"
+      - ""
+      - "🎯 Grafana:"
+      - "  - Route: {{ 'Created' if (expose_grafana and grafana_route_result.rc == 0) else 'Skipped/Error' }}"
+      - "  - URL: {{ 'http://' + grafana_url_result.stdout if (expose_grafana and grafana_url_result.stdout != 'not-created') else 'Not available' }}"
+      - "  - Admin User: {{ grafana_admin_user }}"
+      - "  - Admin Password: {{ grafana_admin_password }}"
+      - ""
+      - "📊 Prometheus:"
+      - "  - Route: {{ 'Created' if (expose_prometheus and prometheus_route_result.rc == 0) else 'Skipped/Error' }}"
+      - "  - URL: {{ 'http://' + prometheus_url_result.stdout if (expose_prometheus and prometheus_url_result.stdout != 'not-created') else 'Not available' }}"
+      - ""
+      - "🔗 Alternative Access:"
+      - "  - Port Forward Grafana: oc port-forward svc/grafana 3000:3000 -n {{ monitoring_namespace }}"
+      - "  - Port Forward Prometheus: oc port-forward svc/prometheus 9090:9090 -n {{ monitoring_namespace }}"
+      - ""
+      - "📝 Notes:"
+      - "  - Routes may take a few minutes to become available"
+      - "  - Use port-forward for immediate access during setup"
+      - "  - Check route status: oc get routes -n {{ monitoring_namespace }}"
+  tags:
+    - monitoring
+    - routes

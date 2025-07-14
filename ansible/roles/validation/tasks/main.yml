@@ -1,0 +1,49 @@
+# Main tasks file for validation role
+---
+- name: "Start ROSA Pre-Validation for {{ environment_name }} environment"
+  debug:
+    msg: "🔍 Starting ROSA Pre-Validation for {{ environment_name }} environment"
+
+- name: Include AWS region validation tasks
+  include_tasks: validate_aws_region.yml
+  tags:
+    - validation
+    - aws-region
+
+- name: Include availability zones validation tasks
+  include_tasks: validate_availability_zones.yml
+  when: validate_availability_zones | default(true)
+  tags:
+    - validation
+    - availability-zones
+
+- name: Include cluster configuration validation tasks
+  include_tasks: validate_cluster_config.yml
+  tags:
+    - validation
+    - cluster-config
+
+- name: Include autoscaling configuration validation tasks
+  include_tasks: validate_autoscaling_config.yml
+  when: enable_autoscaling | default(false)
+  tags:
+    - validation
+    - autoscaling
+
+- name: Include AWS service quotas validation tasks
+  include_tasks: validate_aws_quotas.yml
+  when: validate_service_quotas | default(true)
+  tags:
+    - validation
+    - aws-quotas
+
+- name: Include ROSA prerequisites validation tasks
+  include_tasks: validate_rosa_prerequisites.yml
+  when: verify_rosa_quota | default(false) or verify_aws_permissions | default(false)
+  tags:
+    - validation
+    - rosa-prerequisites
+
+- name: "Complete ROSA Pre-Validation for {{ environment_name }} environment"
+  debug:
+    msg: "✅ All ROSA Pre-Validation checks PASSED for {{ environment_name }} environment!"

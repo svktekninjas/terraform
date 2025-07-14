@@ -1,0 +1,70 @@
+# Create monitoring namespace and basic setup
+---
+- name: "Create monitoring namespace"
+  shell: |
+    oc create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | oc apply -f -
+  register: monitoring_namespace_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - namespace
+
+- name: "Label monitoring namespace"
+  shell: |
+    oc label namespace {{ monitoring_namespace }} \
+      name={{ monitoring_namespace }} \
+      monitoring=enabled \
+      environment={{ target_environment }} \
+      --overwrite
+  register: namespace_label_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - namespace
+
+- name: "Create monitoring ConfigMap for environment settings"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: monitoring-config
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: monitoring
+        environment: {{ target_environment }}
+    data:
+      environment: {{ target_environment }}
+      cluster_name: {{ full_cluster_name }}
+      aws_region: {{ cloudwatch_region }}
+      log_group: {{ cloudwatch_log_group }}
+      prometheus_retention: {{ prometheus_retention }}
+      grafana_admin_user: {{ grafana_admin_user }}
+      debug_mode: "{{ debug_mode | string }}"
+      verbose_logging: "{{ verbose_logging | string }}"
+    EOF
+  register: monitoring_configmap_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - namespace
+    - configmap
+
+- name: "Display namespace creation results"
+  debug:
+    msg:
+      - "📁 Monitoring namespace setup:"
+      - "  - Namespace: {{ monitoring_namespace }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Status: {{ 'Created/Updated' if monitoring_namespace_result.rc == 0 else 'Error' }}"
+      - "  - Labels: {{ 'Applied' if namespace_label_result.rc == 0 else 'Error' }}"
+      - "  - ConfigMap: {{ 'Created' if monitoring_configmap_result.rc == 0 else 'Error' }}"
+  tags:
+    - monitoring
+    - namespace

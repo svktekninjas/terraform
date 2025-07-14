@@ -1,0 +1,215 @@
+# Configure ServiceMonitors for Prometheus scraping
+---
+- name: "Create ServiceMonitor for Node Exporter"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    spec:
+      selector:
+        matchLabels:
+          app: node-exporter
+      endpoints:
+      - port: metrics
+        interval: 30s
+        path: /metrics
+        honorLabels: true
+      namespaceSelector:
+        matchNames:
+        - {{ monitoring_namespace }}
+    EOF
+  register: servicemonitor_node_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - servicemonitors
+    - node-exporter
+
+- name: "Create ServiceMonitor for Prometheus itself"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: prometheus
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    spec:
+      selector:
+        matchLabels:
+          app: prometheus
+      endpoints:
+      - port: web
+        interval: 30s
+        path: /metrics
+        honorLabels: true
+      namespaceSelector:
+        matchNames:
+        - {{ monitoring_namespace }}
+    EOF
+  register: servicemonitor_prometheus_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - servicemonitors
+    - prometheus
+
+- name: "Create ServiceMonitor for kube-state-metrics (if available)"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: kube-state-metrics
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: kube-state-metrics
+        environment: {{ target_environment }}
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: kube-state-metrics
+      endpoints:
+      - port: http-metrics
+        interval: 30s
+        path: /metrics
+        honorLabels: true
+      - port: telemetry
+        interval: 30s
+        path: /metrics
+        honorLabels: true
+      namespaceSelector:
+        any: true
+    EOF
+  register: servicemonitor_ksm_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - servicemonitors
+    - kube-state-metrics
+
+- name: "Create ServiceMonitor for kubelet metrics"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: kubelet
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: kubelet
+        environment: {{ target_environment }}
+    spec:
+      jobLabel: k8s-app
+      selector:
+        matchLabels:
+          k8s-app: kubelet
+      endpoints:
+      - port: https-metrics
+        interval: 30s
+        path: /metrics
+        scheme: https
+        tlsConfig:
+          caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecureSkipVerify: true
+        bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+        honorLabels: true
+        relabelings:
+        - sourceLabels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          targetLabel: __address__
+          replacement: \${1}:10250
+      - port: https-metrics
+        interval: 30s
+        path: /metrics/cadvisor
+        scheme: https
+        tlsConfig:
+          caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecureSkipVerify: true
+        bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+        honorLabels: true
+        relabelings:
+        - sourceLabels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          targetLabel: __address__
+          replacement: \${1}:10250
+      namespaceSelector:
+        matchNames:
+        - kube-system
+    EOF
+  register: servicemonitor_kubelet_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - servicemonitors
+    - kubelet
+
+- name: "Create ServiceMonitor for API server metrics"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: kubernetes-apiservers
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: kubernetes
+        environment: {{ target_environment }}
+    spec:
+      selector:
+        matchLabels:
+          component: apiserver
+          provider: kubernetes
+      endpoints:
+      - port: https
+        interval: 30s
+        path: /metrics
+        scheme: https
+        tlsConfig:
+          caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          serverName: kubernetes
+        bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+        honorLabels: true
+      namespaceSelector:
+        matchNames:
+        - default
+    EOF
+  register: servicemonitor_apiserver_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - servicemonitors
+    - apiserver
+
+- name: "Display ServiceMonitor configuration results"
+  debug:
+    msg:
+      - "🎯 ServiceMonitor configuration completed:"
+      - "  - Node Exporter: {{ 'Created' if servicemonitor_node_result.rc == 0 else 'Error' }}"
+      - "  - Prometheus: {{ 'Created' if servicemonitor_prometheus_result.rc == 0 else 'Error' }}"
+      - "  - Kube-State-Metrics: {{ 'Created' if servicemonitor_ksm_result.rc == 0 else 'Error' }}"
+      - "  - Kubelet: {{ 'Created' if servicemonitor_kubelet_result.rc == 0 else 'Error' }}"
+      - "  - API Server: {{ 'Created' if servicemonitor_apiserver_result.rc == 0 else 'Error' }}"
+      - "  - Namespace: {{ monitoring_namespace }}"
+      - "  - Scrape Interval: 30s"
+  tags:
+    - monitoring
+    - servicemonitors

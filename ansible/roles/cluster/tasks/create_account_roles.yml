@@ -1,0 +1,45 @@
+# Create ROSA account-wide roles and policies
+---
+- name: "Load environment-specific cluster configuration"
+  include_vars: "{{ ansible_env_path }}/cluster-config.yml"
+  tags:
+    - cluster
+    - account-roles
+
+- name: "Check if account roles already exist"
+  shell: rosa list account-roles
+  register: existing_account_roles
+  changed_when: false
+  failed_when: false
+  tags:
+    - cluster
+    - account-roles
+
+- name: "Create account-wide STS roles and policies"
+  shell: |
+    rosa create account-roles \
+      --mode {{ mode }} \
+      --yes
+  register: account_roles_result
+  when: "'ManagedOpenShift-Installer-Role' not in existing_account_roles.stdout"
+  tags:
+    - cluster
+    - account-roles
+
+- name: "Display account roles creation result"
+  debug:
+    msg:
+      - "✅ Account roles creation completed:"
+      - "{{ account_roles_result.stdout }}"
+  when: account_roles_result is defined and account_roles_result.changed
+  tags:
+    - cluster
+    - account-roles
+
+- name: "Log account roles status"
+  debug:
+    msg: "✅ Account roles already exist - skipping creation"
+  when: "'ManagedOpenShift-Installer-Role' in existing_account_roles.stdout"
+  tags:
+    - cluster
+    - account-roles

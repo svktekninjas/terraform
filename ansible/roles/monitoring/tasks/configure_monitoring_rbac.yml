@@ -1,0 +1,230 @@
+# Configure RBAC for monitoring services
+---
+- name: "Create monitoring service accounts"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: prometheus
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    ---
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    EOF
+  register: monitoring_sa_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - rbac
+    - serviceaccounts
+
+- name: "Create ClusterRole for Prometheus"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: prometheus-{{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    rules:
+    - apiGroups: [""]
+      resources:
+      - nodes
+      - nodes/proxy
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - pods/proxy
+      - configmaps
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources:
+      - deployments
+      - replicasets
+      - daemonsets
+      - statefulsets
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions"]
+      resources:
+      - ingresses
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["networking.k8s.io"]
+      resources:
+      - ingresses
+      verbs: ["get", "list", "watch"]
+    - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+      verbs: ["get"]
+    - apiGroups: ["monitoring.coreos.com"]
+      resources:
+      - servicemonitors
+      - podmonitors
+      - prometheusrules
+      verbs: ["get", "list", "watch"]
+    EOF
+  register: prometheus_clusterrole_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - rbac
+    - clusterrole
+
+- name: "Create ClusterRole for Node Exporter"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: node-exporter-{{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    rules:
+    - apiGroups: ["authentication.k8s.io"]
+      resources:
+      - tokenreviews
+      verbs: ["create"]
+    - apiGroups: ["authorization.k8s.io"]
+      resources:
+      - subjectaccessreviews
+      verbs: ["create"]
+    EOF
+  register: node_exporter_clusterrole_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - rbac
+    - clusterrole
+
+- name: "Create ClusterRoleBindings"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: prometheus-{{ monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: prometheus-{{ monitoring_namespace }}
+    subjects:
+    - kind: ServiceAccount
+      name: prometheus
+      namespace: {{ monitoring_namespace }}
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: node-exporter-{{ monitoring_namespace }}
+      labels:
+        app: node-exporter
+        environment: {{ target_environment }}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: node-exporter-{{ monitoring_namespace }}
+    subjects:
+    - kind: ServiceAccount
+      name: node-exporter
+      namespace: {{ monitoring_namespace }}
+    EOF
+  register: monitoring_crb_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - rbac
+    - clusterrolebinding
+
+- name: "Create Role for Grafana"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    rules:
+    - apiGroups: [""]
+      resources:
+      - configmaps
+      - secrets
+      verbs: ["get", "list", "watch", "create", "update", "patch"]
+    - apiGroups: [""]
+      resources:
+      - pods
+      - services
+      verbs: ["get", "list", "watch"]
+    ---
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: grafana
+    subjects:
+    - kind: ServiceAccount
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+    EOF
+  register: grafana_rbac_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - rbac
+    - role
+
+- name: "Display RBAC configuration results"
+  debug:
+    msg:
+      - "🔐 Monitoring RBAC setup completed:"
+      - "  - Service Accounts: {{ 'Created' if monitoring_sa_result.rc == 0 else 'Error' }}"
+      - "  - Prometheus ClusterRole: {{ 'Created' if prometheus_clusterrole_result.rc == 0 else 'Error' }}"
+      - "  - Node Exporter ClusterRole: {{ 'Created' if node_exporter_clusterrole_result.rc == 0 else 'Error' }}"
+      - "  - ClusterRoleBindings: {{ 'Created' if monitoring_crb_result.rc == 0 else 'Error' }}"
+      - "  - Grafana Role/RoleBinding: {{ 'Created' if grafana_rbac_result.rc == 0 else 'Error' }}"
+  tags:
+    - monitoring
+    - rbac

@@ -1,0 +1,36 @@
+# Cluster configuration validation tasks
+---
+- name: "Set full cluster name with environment suffix"
+  set_fact:
+    full_cluster_name: "{{ cluster_name }}-{{ environment_name }}"
+
+- name: "Validate cluster name format (alphanumeric and hyphens only)"
+  assert:
+    that:
+      - full_cluster_name | regex_search('^[a-z0-9-]+$')
+      - full_cluster_name | length <= 54
+    fail_msg: "❌ Invalid cluster name: {{ full_cluster_name }}. Must be alphanumeric with hyphens only and ≤54 characters"
+    success_msg: "✅ Cluster name valid: {{ full_cluster_name }}"
+
+- name: "Validate OpenShift version format"
+  assert:
+    that:
+      - openshift_version | regex_search('^4\.[0-9]+$')
+    fail_msg: "❌ Invalid OpenShift version: {{ openshift_version }}. Must be in format 4.x"
+    success_msg: "✅ OpenShift version valid: {{ openshift_version }}"
+
+- name: "Validate instance type is supported"
+  assert:
+    that:
+      - instance_type in supported_instance_types
+    fail_msg: "❌ Instance type not supported: {{ instance_type }}. Supported types: {{ supported_instance_types | join(', ') }}"
+    success_msg: "✅ Instance type supported: {{ instance_type }}"
+
+- name: "Log cluster configuration validation result"
+  debug:
+    msg: 
+      - "✅ Cluster configuration validation passed:"
+      - "  - Cluster name: {{ full_cluster_name }}"
+      - "  - OpenShift version: {{ openshift_version }}"
+      - "  - Instance type: {{ instance_type }}"
+  when: enable_debug_logging | default(false)

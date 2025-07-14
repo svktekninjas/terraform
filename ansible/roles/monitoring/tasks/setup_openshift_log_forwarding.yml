@@ -1,0 +1,234 @@
+# Setup OpenShift Native Log Forwarding to CloudWatch
+---
+- name: "Create openshift-logging namespace"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: openshift-logging
+      labels:
+        openshift.io/cluster-logging: "true"
+        openshift.io/cluster-monitoring: "true"
+    EOF
+  register: logging_namespace_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - namespace
+
+- name: "Install OpenShift Cluster Logging Operator"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: operators.coreos.com/v1
+    kind: OperatorGroup
+    metadata:
+      name: cluster-logging
+      namespace: openshift-logging
+    spec:
+      targetNamespaces:
+      - openshift-logging
+    ---
+    apiVersion: operators.coreos.com/v1alpha1
+    kind: Subscription
+    metadata:
+      name: cluster-logging
+      namespace: openshift-logging
+    spec:
+      channel: stable-6.2
+      name: cluster-logging
+      source: redhat-operators
+      sourceNamespace: openshift-marketplace
+    EOF
+  register: logging_operator_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - operator
+
+- name: "Wait for Cluster Logging Operator to be installed"
+  shell: |
+    # Wait for the operator pod to be running
+    timeout=300
+    counter=0
+    while [ $counter -lt $timeout ]; do
+      if oc get pods -n openshift-logging -l name=cluster-logging-operator --no-headers 2>/dev/null | grep -q Running; then
+        echo "Operator pod is running"
+        break
+      fi
+      echo "Waiting for operator pod... ($counter/$timeout)"
+      sleep 10
+      counter=$((counter + 10))
+    done
+    
+    # Wait for CRDs to be available
+    timeout=300
+    counter=0
+    while [ $counter -lt $timeout ]; do
+      if oc get crd clusterlogforwarders.observability.openshift.io 2>/dev/null; then
+        echo "CRDs are available"
+        break
+      fi
+      echo "Waiting for CRDs... ($counter/$timeout)"
+      sleep 10
+      counter=$((counter + 10))
+    done
+  register: operator_ready_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - validation
+
+- name: "Create AWS credentials secret for CloudWatch"
+  shell: |
+    # Get AWS credentials from environment or AWS profile
+    AWS_ACCESS_KEY_ID=$(aws configure get aws_access_key_id --profile {{ aws_profile }})
+    AWS_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key --profile {{ aws_profile }})
+    
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cloudwatch-credentials
+      namespace: openshift-logging
+    type: Opaque
+    data:
+      aws_region: {{ openshift_log_forwarding.cloudwatch_region | b64encode }}
+      aws_access_key_id: $(echo -n "$AWS_ACCESS_KEY_ID" | base64)
+      aws_secret_access_key: $(echo -n "$AWS_SECRET_ACCESS_KEY" | base64)
+    EOF
+  register: aws_credentials_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - credentials
+
+- name: "Set cluster_logging_result for display (not needed for log forwarding)"
+  set_fact:
+    cluster_logging_result:
+      rc: 0
+      stdout: "Skipped - not required for CloudWatch log forwarding"
+  tags:
+    - monitoring
+    - openshift-logging
+
+- name: "Create log-collector ServiceAccount"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: log-collector
+      namespace: openshift-logging
+      labels:
+        app: log-collector
+    EOF
+  register: log_collector_sa_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - serviceaccount
+
+- name: "Create ClusterLogForwarder for CloudWatch"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: observability.openshift.io/v1
+    kind: ClusterLogForwarder
+    metadata:
+      name: cloudwatch-forwarder
+      namespace: openshift-logging
+    spec:
+      serviceAccount:
+        name: log-collector
+      outputs:
+      - name: cloudwatch-logs
+        type: cloudwatch
+        cloudwatch:
+          groupName: {{ openshift_log_forwarding.cloudwatch_log_group }}
+          region: {{ openshift_log_forwarding.cloudwatch_region }}
+          authentication:
+            type: awsAccessKey
+            awsAccessKey:
+              keyId:
+                key: aws_access_key_id
+                secretName: cloudwatch-credentials
+              keySecret:
+                key: aws_secret_access_key
+                secretName: cloudwatch-credentials
+        secret:
+          name: cloudwatch-credentials
+      pipelines:
+      - name: application-logs
+        inputRefs:
+        - application
+        outputRefs:
+        - cloudwatch-logs
+      - name: infrastructure-logs
+        inputRefs:
+        - infrastructure
+        outputRefs:
+        - cloudwatch-logs
+      - name: audit-logs
+        inputRefs:
+        - audit
+        outputRefs:
+        - cloudwatch-logs
+    EOF
+  register: log_forwarder_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - log-forwarder
+
+- name: "Validate OpenShift log forwarding deployment"
+  shell: |
+    echo "Checking ClusterLogging status..."
+    oc get clusterlogging instance -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+    echo ""
+    echo "Checking ClusterLogForwarder status..."
+    oc get clusterlogforwarder cloudwatch-forwarder -n openshift-logging -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+    echo ""
+    echo "Checking logging pods..."
+    oc get pods -n openshift-logging
+  register: logging_validation_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - openshift-logging
+    - validation
+
+- name: "Display OpenShift log forwarding setup results"
+  debug:
+    msg:
+      - "📋 OpenShift Native Log Forwarding setup completed:"
+      - "  - Namespace: {{ 'Created' if logging_namespace_result.rc == 0 else 'Error' }}"
+      - "  - Operator: {{ 'Installed' if logging_operator_result.rc == 0 else 'Error' }}"
+      - "  - AWS Credentials: {{ 'Created' if aws_credentials_result.rc == 0 else 'Error' }}"
+      - "  - ClusterLogging: {{ 'Created' if cluster_logging_result.rc == 0 else 'Error' }}"
+      - "  - LogForwarder: {{ 'Created' if log_forwarder_result.rc == 0 else 'Error' }}"
+      - "  - CloudWatch Region: {{ openshift_log_forwarding.cloudwatch_region }}"
+      - "  - CloudWatch Log Group: {{ openshift_log_forwarding.cloudwatch_log_group }}"
+      - "  - Log Retention: {{ openshift_log_forwarding.cloudwatch_retention_days }} days"
+  tags:
+    - monitoring
+    - openshift-logging

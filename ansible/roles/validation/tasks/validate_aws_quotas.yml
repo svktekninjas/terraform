@@ -1,0 +1,35 @@
+# AWS Service Quotas validation tasks
+---
+- name: "Get EC2 vCPU quota for running On-Demand instances"
+  shell: |
+    aws service-quotas get-service-quota \
+      --service-code ec2 \
+      --quota-code L-34B43A08 \
+      --query 'Quota.Value' \
+      --output text 2>/dev/null || echo "0"
+  register: vcpu_quota_result
+  changed_when: false
+  failed_when: false
+
+- name: "Convert vCPU quota to integer"
+  set_fact:
+    current_vcpu_quota: "{{ vcpu_quota_result.stdout | int }}"
+
+- name: "Display current vCPU quota and requirements"
+  debug:
+    msg:
+      - "Current vCPU limit: {{ current_vcpu_quota }}"
+      - "Required minimum for {{ environment_name }}: {{ min_vcpu_quota }}"
+  when: enable_debug_logging | default(false)
+
+- name: "Validate vCPU quota meets environment requirements"
+  assert:
+    that:
+      - current_vcpu_quota | int >= min_vcpu_quota | int
+    fail_msg: "❌ EC2 vCPU limit ({{ current_vcpu_quota }}) below required minimum ({{ min_vcpu_quota }}) for {{ environment_name }} environment"
+    success_msg: "✅ vCPU quota sufficient: {{ current_vcpu_quota }} (required: {{ min_vcpu_quota }}) for {{ environment_name }} environment"
+
+- name: "Log AWS quotas validation result"
+  debug:
+    msg: "✅ AWS quota validation passed for {{ environment_name }} environment: {{ current_vcpu_quota }} vCPUs available"
+  when: enable_debug_logging | default(false)

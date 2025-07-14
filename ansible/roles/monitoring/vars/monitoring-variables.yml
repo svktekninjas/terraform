@@ -1,0 +1,203 @@
+# Monitoring Role Variables
+---
+# Supported monitoring tools and versions
+supported_monitoring_tools:
+  - "prometheus"
+  - "grafana"
+  - "node-exporter"
+  - "openshift-logging"
+  - "cloudwatch-insights"
+
+# Container Images
+container_images:
+  prometheus: "prom/prometheus:v2.45.0"
+  grafana: "grafana/grafana:10.1.0"
+  node_exporter: "prom/node-exporter:v1.6.1"
+  prometheus_operator: "quay.io/prometheus-operator/prometheus-operator:v0.68.0"
+
+# Default monitoring configuration
+default_monitoring_config:
+  namespace: "monitoring"
+  enable_rbac: true
+  enable_security_context: true
+  enable_network_policies: false
+
+# CloudWatch regions and settings
+cloudwatch_config:
+  supported_regions:
+    - "us-east-1"
+    - "us-west-2"
+    - "eu-west-1"
+    - "ap-south-1"
+  default_region: "us-east-1"
+  container_insights_addon: "container-insights"
+  log_driver: "awslogs"
+
+# Prometheus configuration options
+prometheus_defaults:
+  global_config:
+    scrape_interval: "15s"
+    evaluation_interval: "15s"
+  rule_files: []
+  scrape_configs:
+    - job_name: "prometheus"
+      static_configs:
+        - targets: ["localhost:9090"]
+    - job_name: "node-exporter"
+      static_configs:
+        - targets: ["node-exporter:9100"]
+
+# Grafana datasources and dashboards
+grafana_defaults:
+  datasources:
+    - name: "Prometheus"
+      type: "prometheus"
+      url: "http://prometheus:9090"
+      access: "proxy"
+      is_default: true
+  dashboard_providers:
+    - name: "default"
+      type: "file"
+      options:
+        path: "/var/lib/grafana/dashboards"
+
+# Node Exporter collectors
+node_exporter_collectors:
+  enabled:
+    - "cpu"
+    - "diskstats"
+    - "filesystem"
+    - "loadavg"
+    - "meminfo"
+    - "netdev"
+    - "netstat"
+    - "stat"
+    - "time"
+    - "uname"
+    - "vmstat"
+  disabled:
+    - "arp"
+    - "bcache"
+    - "bonding"
+    - "conntrack"
+    - "entropy"
+    - "filefd"
+    - "hwmon"
+    - "infiniband"
+    - "ipvs"
+    - "mdadm"
+    - "nfs"
+    - "nfsd"
+    - "sockstat"
+    - "textfile"
+    - "wifi"
+    - "xfs"
+    - "zfs"
+
+# Alert manager configuration
+alertmanager_config:
+  global:
+    smtp_smarthost: "localhost:587"
+    smtp_from: "alertmanager@rosa.local"
+  route:
+    group_by: ["alertname"]
+    group_wait: "10s"
+    group_interval: "10s"
+    repeat_interval: "1h"
+    receiver: "web.hook"
+  receivers:
+    - name: "web.hook"
+      webhook_configs:
+        - url: "http://127.0.0.1:5001/"
+
+# RBAC configurations
+monitoring_rbac:
+  service_accounts:
+    - "prometheus"
+    - "grafana"
+    - "node-exporter"
+  cluster_roles:
+    - "prometheus"
+    - "node-exporter"
+  cluster_role_bindings:
+    - "prometheus"
+    - "node-exporter"
+
+# Security contexts
+security_contexts:
+  prometheus:
+    run_as_non_root: true
+    run_as_user: 65534
+    fs_group: 65534
+  grafana:
+    run_as_non_root: true
+    run_as_user: 472
+    fs_group: 472
+  node_exporter:
+    run_as_non_root: true
+    run_as_user: 65534
+
+# Resource requirements by environment
+resource_requirements:
+  dev:
+    prometheus:
+      memory_request: "200Mi"
+      memory_limit: "400Mi"
+      cpu_request: "50m"
+      cpu_limit: "100m"
+    grafana:
+      memory_request: "100Mi"
+      memory_limit: "200Mi"
+      cpu_request: "50m"
+      cpu_limit: "100m"
+  test:
+    prometheus:
+      memory_request: "400Mi"
+      memory_limit: "800Mi"
+      cpu_request: "100m"
+      cpu_limit: "200m"
+    grafana:
+      memory_request: "150Mi"
+      memory_limit: "300Mi"
+      cpu_request: "75m"
+      cpu_limit: "150m"
+  prod:
+    prometheus:
+      memory_request: "1Gi"
+      memory_limit: "2Gi"
+      cpu_request: "200m"
+      cpu_limit: "500m"
+    grafana:
+      memory_request: "300Mi"
+      memory_limit: "600Mi"
+      cpu_request: "150m"
+      cpu_limit: "300m"
+
+# Dashboard configurations
+dashboard_configs:
+  cluster_overview:
+    title: "ROSA Cluster Overview"
+    description: "High-level cluster metrics and health"
+  node_metrics:
+    title: "Node Metrics"
+    description: "Detailed node-level metrics"
+  pod_metrics:
+    title: "Pod Metrics"
+    description: "Pod and container metrics"
+  application_metrics:
+    title: "Application Metrics"
+    description: "Application-specific metrics"
+
+# Monitoring endpoints
+monitoring_endpoints:
+  prometheus_port: 9090
+  grafana_port: 3000
+  node_exporter_port: 9100
+  alertmanager_port: 9093
+
+# Timeout values (in seconds)
+timeout_values:
+  prometheus_startup: 120
+  grafana_startup: 60
+  node_exporter_startup: 30
+  cloudwatch_addon: 300

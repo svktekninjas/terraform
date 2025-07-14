@@ -4,16 +4,25 @@
 - name: "AWS Setup - Starting configuration"
   debug:
     msg: "Starting AWS CLI setup and configuration validation"
+  tags: aws
 
 - name: "Include AWS CLI installation tasks"
   include_tasks: install_aws_cli.yml
+  tags: aws
 
 - name: "Include AWS service account validation tasks"
   include_tasks: validate_service_account.yml
+  tags: aws
 
 - name: "Include environment setup tasks"
   include_tasks: setup_environment.yml
+  tags: aws
+
+- name: "Include ROSA service enablement tasks"
+  include_tasks: enable_rosa_service.yml
+  tags: aws
 
 - name: "AWS Setup - Configuration complete"
   debug:
     msg: "AWS CLI setup and configuration validation completed successfully"
+  tags: aws

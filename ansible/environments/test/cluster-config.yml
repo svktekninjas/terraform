@@ -1,0 +1,66 @@
+# Test Environment - ROSA Cluster Configuration
+---
+# Cluster Basic Configuration
+cluster_name_prefix: "rosa-cluster"
+cluster_description: "Test ROSA cluster for pre-production testing and validation"
+openshift_version: "4.18.0"
+
+# AWS Configuration
+aws_region: "us-east-1"
+availability_zones:
+  - "us-east-1a"
+  - "us-east-1b"
+  - "us-east-1c"
+multi_az: true
+
+# STS Configuration
+sts_enabled: true
+mode: "auto"
+operator_roles_prefix_auto: true
+
+# Network Configuration
+machine_cidr: "10.1.0.0/16"
+service_cidr: "172.31.0.0/16"
+pod_cidr: "10.129.0.0/14"
+host_prefix: 23
+
+# Compute Configuration
+compute_nodes: 3
+compute_machine_type: "m5.xlarge"
+enable_autoscaling: true
+min_replicas: 3
+max_replicas: 6
+
+# Storage Configuration
+storage_type: "gp3"
+storage_size: "500"
+
+# Security Configuration
+private_cluster: false
+privatelink_enabled: false
+additional_security_groups: []
+
+# Monitoring and Logging
+enable_monitoring: true
+enable_logging: true
+
+# Cluster Features
+enable_fips: false
+enable_etcd_encryption: true
+
+# Cluster Access
+create_admin_user: true
+admin_username: "cluster-admin"
+
+# Backup and Maintenance
+disable_workload_monitoring: false
+cluster_auto_upgrade: false
+
+# Test specific settings
+destroy_cluster_on_completion: false
+wait_for_cluster_ready: true
+cluster_ready_timeout: 5400  # 1.5 hours
+
+# Cost Optimization
+enable_spot_instances: false
+hibernate_cluster: false

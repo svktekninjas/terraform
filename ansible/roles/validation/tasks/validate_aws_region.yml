@@ -1,0 +1,19 @@
+# AWS Region validation tasks
+---
+- name: "Get current AWS region"
+  shell: aws configure get region
+  register: current_aws_region
+  changed_when: false
+  failed_when: current_aws_region.rc != 0
+
+- name: "Validate AWS region is supported for ROSA"
+  assert:
+    that:
+      - current_aws_region.stdout in supported_aws_regions
+    fail_msg: "❌ Region {{ current_aws_region.stdout }} is NOT supported for ROSA. Supported regions: {{ supported_aws_regions | join(', ') }}"
+    success_msg: "✅ Region {{ current_aws_region.stdout }} is supported for ROSA"
+
+- name: "Log AWS region validation result"
+  debug:
+    msg: "✅ AWS Region validation passed: {{ current_aws_region.stdout }}"
+  when: enable_debug_logging | default(false)

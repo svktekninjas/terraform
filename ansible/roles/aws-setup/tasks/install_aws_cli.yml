@@ -5,10 +5,12 @@
   register: aws_cli_check
   ignore_errors: yes
   changed_when: false
+  tags: aws
 
 - name: "Display AWS CLI status"
   debug:
     msg: "AWS CLI is {{ 'installed' if aws_cli_check.rc == 0 else 'not installed' }}"
+  tags: aws
 
 - name: "Install AWS CLI (Ubuntu/Debian)"
   block:
@@ -17,27 +19,33 @@
         url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
         dest: "/tmp/awscliv2.zip"
         mode: '0644'
+      tags: aws
 
     - name: "Unzip AWS CLI installer"
       unarchive:
         src: "/tmp/awscliv2.zip"
         dest: "/tmp"
         remote_src: yes
+      tags: aws
 
     - name: "Install AWS CLI"
       command: /tmp/aws/install
       become: yes
+      tags: aws
 
     - name: "Verify AWS CLI installation"
       command: aws --version
       register: aws_cli_verify
       changed_when: false
+      tags: aws
 
     - name: "Display AWS CLI version"
       debug:
         msg: "AWS CLI installed successfully: {{ aws_cli_verify.stdout }}"
+      tags: aws
 
   when: aws_cli_check.rc != 0 and ansible_os_family == "Debian"
+  tags: aws
 
 - name: "Install AWS CLI (RedHat/CentOS)"
   block:
@@ -46,33 +54,40 @@
         url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
         dest: "/tmp/awscliv2.zip"
         mode: '0644'
+      tags: aws
 
     - name: "Install unzip if not present"
       package:
         name: unzip
         state: present
       become: yes
+      tags: aws
 
     - name: "Unzip AWS CLI installer"
       unarchive:
         src: "/tmp/awscliv2.zip"
         dest: "/tmp"
         remote_src: yes
+      tags: aws
 
     - name: "Install AWS CLI"
       command: /tmp/aws/install
       become: yes
+      tags: aws
 
     - name: "Verify AWS CLI installation"
       command: aws --version
       register: aws_cli_verify
       changed_when: false
+      tags: aws
 
     - name: "Display AWS CLI version"
       debug:
         msg: "AWS CLI installed successfully: {{ aws_cli_verify.stdout }}"
+      tags: aws
 
   when: aws_cli_check.rc != 0 and ansible_os_family == "RedHat"
+  tags: aws
 
 - name: "Install AWS CLI (macOS)"
   block:
@@ -81,23 +96,29 @@
         url: "https://awscli.amazonaws.com/AWSCLIV2.pkg"
         dest: "/tmp/AWSCLIV2.pkg"
         mode: '0644'
+      tags: aws
 
     - name: "Install AWS CLI on macOS"
       command: installer -pkg /tmp/AWSCLIV2.pkg -target /
       become: yes
+      tags: aws
 
     - name: "Verify AWS CLI installation"
       command: aws --version
       register: aws_cli_verify
       changed_when: false
+      tags: aws
 
     - name: "Display AWS CLI version"
       debug:
         msg: "AWS CLI installed successfully: {{ aws_cli_verify.stdout }}"
+      tags: aws
 
   when: aws_cli_check.rc != 0 and ansible_os_family == "Darwin"
+  tags: aws
 
 - name: "Fail if AWS CLI installation not supported"
   fail:
     msg: "AWS CLI installation not supported for {{ ansible_os_family }}"
   when: aws_cli_check.rc != 0 and ansible_os_family not in ["Debian", "RedHat", "Darwin"]
+  tags: aws

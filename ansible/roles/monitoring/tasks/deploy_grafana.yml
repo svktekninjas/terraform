@@ -1,0 +1,305 @@
+# Deploy Grafana visualization server
+---
+- name: "Create Grafana Secret for admin credentials"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: grafana-admin
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    type: Opaque
+    data:
+      admin-user: {{ grafana_admin_user | b64encode }}
+      admin-password: {{ grafana_admin_password | b64encode }}
+    EOF
+  register: grafana_secret_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - secret
+
+- name: "Create Grafana ConfigMap for datasources"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-datasources
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    data:
+      datasource.yaml: |
+        apiVersion: 1
+        datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: true
+          editable: true
+          jsonData:
+            timeInterval: "30s"
+            queryTimeout: "60s"
+            httpMethod: "POST"
+    EOF
+  register: grafana_datasources_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - configmap
+
+- name: "Create Grafana ConfigMap for dashboard provisioning"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-dashboards-provisioning
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    data:
+      dashboards.yaml: |
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          allowUiUpdates: true
+          options:
+            path: /var/lib/grafana/dashboards
+    EOF
+  register: grafana_dashboards_provisioning_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - configmap
+
+- name: "Create Grafana ConfigMap for dashboards"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-dashboards
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    data:
+      rosa-overview.json: |
+        {
+          "dashboard": {
+            "id": null,
+            "title": "ROSA Cluster Overview",
+            "tags": ["rosa", "cluster", "overview"],
+            "timezone": "browser",
+            "panels": [
+              {
+                "id": 1,
+                "title": "CPU Usage",
+                "type": "stat",
+                "targets": [
+                  {
+                    "expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                    "refId": "A"
+                  }
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+              },
+              {
+                "id": 2,
+                "title": "Memory Usage",
+                "type": "stat",
+                "targets": [
+                  {
+                    "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                    "refId": "A"
+                  }
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+              }
+            ],
+            "time": {"from": "now-1h", "to": "now"},
+            "refresh": "30s"
+          }
+        }
+    EOF
+  register: grafana_dashboards_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - configmap
+
+- name: "Deploy Grafana Deployment"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: grafana
+      template:
+        metadata:
+          labels:
+            app: grafana
+            environment: {{ target_environment }}
+        spec:
+          serviceAccountName: grafana
+          securityContext:
+            runAsNonRoot: true
+          containers:
+          - name: grafana
+            image: {{ grafana_image }}
+            ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+            env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-admin
+                  key: admin-password
+            - name: GF_INSTALL_PLUGINS
+              value: "grafana-piechart-panel,grafana-clock-panel,grafana-simple-json-datasource"
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/rosa-overview.json"
+            resources:
+              requests:
+                memory: {{ grafana_config.memory_request if grafana_config is defined else grafana_memory_request }}
+                cpu: {{ grafana_config.cpu_request if grafana_config is defined else grafana_cpu_request }}
+              limits:
+                memory: {{ grafana_config.memory_limit if grafana_config is defined else grafana_memory_limit }}
+                cpu: {{ grafana_config.cpu_limit if grafana_config is defined else grafana_cpu_limit }}
+            volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provisioning
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards
+            livenessProbe:
+              httpGet:
+                path: /api/health
+                port: 3000
+              initialDelaySeconds: 60
+              timeoutSeconds: 30
+            readinessProbe:
+              httpGet:
+                path: /api/health
+                port: 3000
+              initialDelaySeconds: 30
+              timeoutSeconds: 30
+          volumes:
+          - name: grafana-storage
+            emptyDir: {}
+          - name: grafana-datasources
+            configMap:
+              name: grafana-datasources
+          - name: grafana-dashboards-provisioning
+            configMap:
+              name: grafana-dashboards-provisioning
+          - name: grafana-dashboards
+            configMap:
+              name: grafana-dashboards
+    EOF
+  register: grafana_deployment_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - deployment
+
+- name: "Create Grafana Service"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: grafana
+      namespace: {{ monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+    spec:
+      type: ClusterIP
+      ports:
+      - port: 3000
+        targetPort: 3000
+        name: http
+        protocol: TCP
+      selector:
+        app: grafana
+    EOF
+  register: grafana_service_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - monitoring
+    - grafana
+    - service
+
+- name: "Display Grafana deployment results"
+  debug:
+    msg:
+      - "📈 Grafana deployment completed:"
+      - "  - Namespace: {{ monitoring_namespace }}"
+      - "  - Image: {{ grafana_image }}"
+      - "  - Admin User: {{ grafana_admin_user }}"
+      - "  - Secret: {{ 'Created' if grafana_secret_result.rc == 0 else 'Error' }}"
+      - "  - Datasources: {{ 'Created' if grafana_datasources_result.rc == 0 else 'Error' }}"
+      - "  - Deployment: {{ 'Created' if grafana_deployment_result.rc == 0 else 'Error' }}"
+      - "  - Service: {{ 'Created' if grafana_service_result.rc == 0 else 'Error' }}"
+      - "  - Resources: {{ grafana_config.memory_request if grafana_config is defined else grafana_memory_request }}/{{ grafana_config.cpu_request if grafana_config is defined else grafana_cpu_request }}"
+  tags:
+    - monitoring
+    - grafana

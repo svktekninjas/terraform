@@ -1,0 +1,31 @@
+# Autoscaling configuration validation tasks
+---
+- name: "Validate autoscaling configuration when enabled"
+  block:
+    - name: "Validate min replicas is at least 1"
+      assert:
+        that:
+          - min_replicas >= 1
+        fail_msg: "❌ Minimum replicas must be ≥ 1, got: {{ min_replicas }}"
+        success_msg: "✅ Minimum replicas valid: {{ min_replicas }}"
+
+    - name: "Validate max replicas is greater than or equal to min replicas"
+      assert:
+        that:
+          - max_replicas >= min_replicas
+        fail_msg: "❌ Maximum replicas ({{ max_replicas }}) must be ≥ minimum replicas ({{ min_replicas }})"
+        success_msg: "✅ Autoscaling range valid: {{ min_replicas }}-{{ max_replicas }} replicas"
+
+    - name: "Log autoscaling configuration validation result"
+      debug:
+        msg: "✅ Autoscaling configuration validation passed: {{ min_replicas }}-{{ max_replicas }} replicas"
+      when: enable_debug_logging | default(false)
+
+  when: enable_autoscaling | default(false)
+
+- name: "Log autoscaling disabled"
+  debug:
+    msg: "✅ Autoscaling is disabled for this configuration"
+  when: 
+    - not (enable_autoscaling | default(false))
+    - enable_debug_logging | default(false)
