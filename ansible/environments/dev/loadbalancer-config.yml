@@ -1,0 +1,197 @@
+# Development Environment Load Balancer Configuration
+---
+# Environment Configuration
+environment_name: "dev"
+environment_suffix: "dev"
+cluster_name: "svktek-clstr-dev"
+
+# AWS Network Configuration
+aws_account_id: "606639739464"
+vpc_id: "vpc-0248cd16806a1b2da"
+aws_region: "us-east-1"
+oidc_issuer_url: "https://oidc.op1.openshiftapps.com/2k0c8r75om1ojie607vf4glkvbd4mo89"
+
+# ALB Configuration (Two-tier: ALB for SSL/DNS → Nginx for path routing)
+alb_configuration:
+  base_domain: "svktek-dev.example.com"
+  alb_domain_name: "monitoring.svktek-dev.example.com"
+  alb_load_balancer_name: "monitoring-alb-dev"
+  alb_scheme: "internet-facing"
+  alb_target_type: "instance"
+  alb_group_name: "monitoring-dev"
+  alb_listen_ports:
+    - port: 80
+      protocol: "HTTP"
+    - port: 443
+      protocol: "HTTPS"
+  alb_target_nginx_port: 30080
+
+# SSL/TLS Configuration
+ssl_configuration:
+  ssl_redirect_enabled: true
+  ssl_redirect_port: 443
+  certificate_arn: ""  # Add ACM certificate ARN for SSL when available
+  validate_ssl_certificates: false  # Set to false for dev environment
+
+# Target Namespaces for Load Balancer Optimization
+target_namespaces:
+  - "monitoring"
+  - "openshift-monitoring"
+
+# Service Path Mapping
+service_path_mapping:
+  grafana: "/grafana"
+  prometheus: "/prometheus"
+  alertmanager: "/alertmanager"
+  openshift-prometheus: "/openshift-prometheus"
+  openshift-alertmanager: "/openshift-alertmanager"
+
+# Health Check Configuration
+healthcheck_configuration:
+  healthcheck_path: "/"
+  healthcheck_interval: 30
+  healthcheck_timeout: 5
+  healthy_threshold: 2
+  unhealthy_threshold: 5
+
+# ALB Tags
+alb_tags:
+  Environment: "dev"
+  Project: "ROSA"
+  Owner: "SRE-Team"
+  Purpose: "Monitoring"
+  CostCenter: "Engineering"
+
+# Validation and Testing
+validation_configuration:
+  endpoint_test_timeout: 60
+  endpoint_test_retries: 3
+  validate_endpoints_after_creation: true
+  fail_on_validation_error: false  # Allow failures in dev
+
+# Cleanup Configuration
+cleanup_configuration:
+  cleanup_old_elbs: true
+  cleanup_timeout: 300
+  backup_old_configurations: true
+
+# Nginx Load Balancer Configuration
+nginx_configuration:
+  nginx_namespace: "monitoring"
+  nginx_service_account: "nginxlbsa"
+  nginx_iam_role_name: "ROSANginxLoadBalancerRole"
+  nginx_nlb_policy_name: "ROSANginxNLBPolicy"
+  nginx_image: "nginx:1.25-alpine"
+  nginx_replicas: 2
+  nginx_port: 80
+  nginx_target_port: 8080
+  nginx_node_port: 30080
+  nginx_service_type: "NodePort"
+  nginx_config_map_name: "nginx-config"
+  nginx_config_volume_name: "nginx-config-volume"
+  nginx_log_volume_name: "nginx-logs"
+  nginx_ssl_volume_name: "nginx-ssl"
+
+# Network Load Balancer Configuration
+nlb_configuration:
+  nlb_name: "monitoring-nlb-dev"
+  nlb_scheme: "internet-facing"
+  nlb_type: "network"
+  nlb_ip_address_type: "ipv4"
+  nlb_deletion_protection: false
+  nlb_cross_zone_load_balancing: true
+  nlb_target_group_name: "monitoring-nginx-tg-dev"
+  nlb_target_group_port: 30080
+  nlb_target_group_protocol: "HTTP"
+  nlb_health_check_enabled: true
+  nlb_health_check_interval: 30
+  nlb_health_check_timeout: 6
+  nlb_health_check_healthy_threshold: 2
+  nlb_health_check_unhealthy_threshold: 2
+  nlb_health_check_path: "/health"
+  nlb_health_check_matcher: "200"
+
+# OpenShift Route Configuration (Alternative/Backup)
+route_configuration:
+  enable_routes: true
+  route_domain: "apps.svktek-clstr-dev.rosa.example.com"
+  route_termination: "edge"
+  route_insecure_edge_termination_policy: "Redirect"
+  route_weight: 100
+
+# Worker Node Configuration
+worker_node_configuration:
+  worker_node_selector:
+    node-role.kubernetes.io/worker: ""
+  worker_node_tolerations:
+    - key: "node-role.kubernetes.io/worker"
+      operator: "Exists"
+      effect: "NoSchedule"
+  max_worker_nodes: 10
+  min_worker_nodes: 2
+
+# AWS Network Configuration (Retrieved from existing ROSA cluster)
+network_configuration:
+  vpc_id: "vpc-0248cd16806a1b2da"
+  public_subnet_ids:
+    - "subnet-0a1b2c3d4e5f6g7h8"
+    - "subnet-0i9j8k7l6m5n4o3p2"
+  private_subnet_ids:
+    - "subnet-0q1r2s3t4u5v6w7x8"
+    - "subnet-0y9z8a7b6c5d4e3f2"
+  availability_zones:
+    - "us-east-1a"
+    - "us-east-1b"
+  worker_security_group_id: "sg-0123456789abcdef0"
+  cluster_security_group_id: "sg-0abcdef0123456789"
+
+# Security Group Configuration
+security_group_configuration:
+  nginx_security_group_name: "nginx-loadbalancer-sg-dev"
+  nginx_security_group_description: "Security group for Nginx Load Balancer"
+  nlb_security_group_name: "nlb-monitoring-sg-dev"
+  nlb_security_group_description: "Security group for NLB monitoring"
+  allowed_cidr_blocks:
+    - "0.0.0.0/0"  # Allow all for dev environment
+  allowed_ports:
+    - 80
+    - 443
+    - 30080
+
+# Captured Endpoints from Consolidate Task
+current_endpoints:
+  monitoring_routes:
+    grafana:
+      host: "grafana-rosa-dev-dev.us-east-1.elb.amazonaws.com"
+      namespace: "monitoring"
+      service: "grafana"
+    prometheus:
+      host: "prometheus-rosa-dev-dev.us-east-1.elb.amazonaws.com"
+      namespace: "monitoring"
+      service: "prometheus"
+  openshift_monitoring_routes:
+    alertmanager_main:
+      host: "alertmanager-main-openshift-monitoring.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+      namespace: "openshift-monitoring"
+      service: "alertmanager-main"
+    prometheus_k8s:
+      host: "prometheus-k8s-openshift-monitoring.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+      namespace: "openshift-monitoring"
+      service: "prometheus-k8s"
+    prometheus_k8s_federate:
+      host: "prometheus-k8s-federate-openshift-monitoring.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+      namespace: "openshift-monitoring"
+      service: "prometheus-k8s-federate"
+    thanos_querier:
+      host: "thanos-querier-openshift-monitoring.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+      namespace: "openshift-monitoring"
+      service: "thanos-querier"
+  load_balancer_services: []  # No LoadBalancer services found
+
+# Development specific settings
+dev_settings:
+  debug_mode: true
+  verbose_logging: true
+  enable_debug_annotations: true
+  skip_ssl_validation: true
+  allow_insecure_connections: true

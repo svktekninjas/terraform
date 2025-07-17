@@ -1,0 +1,47 @@
+---
+# ROSA Load Balancer Role Default Variables
+# These variables work with environment-specific configurations
+
+# ALB Controller Configuration
+alb_controller_version: "v2.7.2"
+iam_policy_name: "AWSLoadBalancerControllerIAMPolicy"
+controller_service_account: "aws-load-balancer-controller"
+
+# Target namespaces for load balancer optimization
+target_namespaces:
+  - "monitoring"
+  - "openshift-monitoring"
+  - "openshift-user-workload-monitoring"
+
+# ALB Ingress Configuration
+alb_domain_name: "monitoring-{{ environment_name }}.{{ base_domain | default('example.com') }}"
+alb_load_balancer_name: "monitoring-alb-{{ environment_name }}"
+alb_scheme: "internet-facing"
+alb_target_type: "instance"
+
+# SSL/TLS Configuration
+ssl_redirect_enabled: true
+ssl_redirect_port: 443
+certificate_arn: ""  # Will be populated from environment-specific variables
+
+# Health Check Configuration
+healthcheck_path: "/"
+healthcheck_interval: 30
+healthcheck_timeout: 5
+healthy_threshold: 2
+unhealthy_threshold: 5
+
+# Service endpoint paths
+service_path_mapping:
+  grafana: "/grafana"
+  prometheus: "/prometheus"
+  alertmanager: "/alertmanager"
+
+# Validation and Testing
+endpoint_test_timeout: 60
+endpoint_test_retries: 3
+validate_ssl_certificates: true
+
+# Cleanup Configuration
+cleanup_old_elbs: true
+cleanup_timeout: 300

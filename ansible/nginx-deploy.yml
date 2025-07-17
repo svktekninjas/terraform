@@ -1,0 +1,18 @@
+---
+- name: Deploy Nginx DaemonSet
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  vars:
+    target_environment: dev
+    aws_profile: svktek
+    playbook_dir: "{{ ansible_env.PWD }}"
+    environment: "{{ target_environment }}"
+
+  tasks:
+    - name: "Load environment-specific loadbalancer configuration"
+      include_vars: "{{ playbook_dir }}/environments/{{ target_environment }}/loadbalancer-config.yml"
+
+    - name: "Deploy Nginx DaemonSet"
+      include_tasks: "{{ playbook_dir }}/roles/rosa_loadbalancer/tasks/deploy_nginx_daemonset.yml"
+      tags: [nginx, daemonset]

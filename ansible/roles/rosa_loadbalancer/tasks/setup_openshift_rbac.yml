@@ -1,0 +1,342 @@
+---
+- name: "Create namespace for Nginx Load Balancer"
+  shell: |
+    if oc get namespace {{ nginx_configuration.nginx_namespace }} &>/dev/null; then
+      echo "Namespace {{ nginx_configuration.nginx_namespace }} already exists"
+    else
+      oc create namespace {{ nginx_configuration.nginx_namespace }}
+      echo "Created namespace {{ nginx_configuration.nginx_namespace }}"
+    fi
+  register: nginx_namespace_creation
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create service account for Nginx Load Balancer"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: {{ nginx_configuration.nginx_service_account }}
+      namespace: {{ nginx_configuration.nginx_namespace }}
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::{{ aws_account_id }}:role/{{ nginx_configuration.nginx_iam_role_name }}"
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create ClusterRole for Nginx Load Balancer"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: nginx-loadbalancer-role
+    rules:
+    - apiGroups: [""]
+      resources: ["services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list", "watch", "create", "update", "patch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["create", "patch"]
+    - apiGroups: ["coordination.k8s.io"]
+      resources: ["leases"]
+      verbs: ["get", "list", "watch", "create", "update", "patch"]
+    - apiGroups: ["discovery.k8s.io"]
+      resources: ["endpointslices"]
+      verbs: ["get", "list", "watch"]
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create ClusterRoleBinding for Nginx Load Balancer"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: nginx-loadbalancer-binding
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: nginx-loadbalancer-role
+    subjects:
+    - kind: ServiceAccount
+      name: {{ nginx_configuration.nginx_service_account }}
+      namespace: {{ nginx_configuration.nginx_namespace }}
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create Security Context Constraint for Nginx"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: security.openshift.io/v1
+    kind: SecurityContextConstraints
+    metadata:
+      name: nginx-loadbalancer-scc
+    allowHostDirVolumePlugin: false
+    allowHostIPC: false
+    allowHostNetwork: true
+    allowHostPID: false
+    allowHostPorts: true
+    allowPrivilegeEscalation: false
+    allowPrivilegedContainer: false
+    allowedCapabilities: []
+    allowedUnsafeSysctls: []
+    defaultAddCapabilities: []
+    defaultAllowPrivilegeEscalation: false
+    forbiddenSysctls:
+      - "*"
+    fsGroup:
+      type: RunAsAny
+    groups: []
+    priority: 10
+    readOnlyRootFilesystem: false
+    requiredDropCapabilities:
+      - KILL
+      - MKNOD
+      - SETUID
+      - SETGID
+    runAsUser:
+      type: RunAsAny
+    seLinuxContext:
+      type: MustRunAs
+    supplementalGroups:
+      type: RunAsAny
+    users:
+      - system:serviceaccount:{{ nginx_configuration.nginx_namespace }}:{{ nginx_configuration.nginx_service_account }}
+    volumes:
+      - configMap
+      - downwardAPI
+      - emptyDir
+      - persistentVolumeClaim
+      - projected
+      - secret
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create Role for monitoring namespace access"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      namespace: monitoring
+      name: nginx-monitoring-access
+    rules:
+    - apiGroups: [""]
+      resources: ["services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create RoleBinding for monitoring namespace access"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: nginx-monitoring-binding
+      namespace: monitoring
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: nginx-monitoring-access
+    subjects:
+    - kind: ServiceAccount
+      name: {{ nginx_configuration.nginx_service_account }}
+      namespace: {{ nginx_configuration.nginx_namespace }}
+    EOF
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create Role for openshift-monitoring namespace access"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      namespace: openshift-monitoring
+      name: nginx-openshift-monitoring-access
+    rules:
+    - apiGroups: [""]
+      resources: ["services", "endpoints", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch"]
+    EOF
+  when: '"openshift-monitoring" in target_namespaces'
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create RoleBinding for openshift-monitoring namespace access"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: nginx-openshift-monitoring-binding
+      namespace: openshift-monitoring
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: Role
+      name: nginx-openshift-monitoring-access
+    subjects:
+    - kind: ServiceAccount
+      name: {{ nginx_configuration.nginx_service_account }}
+      namespace: {{ nginx_configuration.nginx_namespace }}
+    EOF
+  when: '"openshift-monitoring" in target_namespaces'
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Add service account to SCC"
+  shell: |
+    oc adm policy add-scc-to-user nginx-loadbalancer-scc -z {{ nginx_configuration.nginx_service_account }} -n {{ nginx_configuration.nginx_namespace }}
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Verify RBAC setup"
+  shell: |
+    echo "=== Verifying OpenShift RBAC Setup ==="
+    echo "Namespace: {{ nginx_configuration.nginx_namespace }}"
+    echo "Service Account: {{ nginx_configuration.nginx_service_account }}"
+    echo ""
+    
+    # Check namespace exists
+    if oc get namespace {{ nginx_configuration.nginx_namespace }} &>/dev/null; then
+      echo "✓ Namespace exists"
+    else
+      echo "✗ Namespace missing"
+      exit 1
+    fi
+    
+    # Check service account exists
+    if oc get serviceaccount {{ nginx_configuration.nginx_service_account }} -n {{ nginx_configuration.nginx_namespace }} &>/dev/null; then
+      echo "✓ Service account exists"
+    else
+      echo "✗ Service account missing"
+      exit 1
+    fi
+    
+    # Check ClusterRole exists
+    if oc get clusterrole nginx-loadbalancer-role &>/dev/null; then
+      echo "✓ ClusterRole exists"
+    else
+      echo "✗ ClusterRole missing"
+      exit 1
+    fi
+    
+    # Check ClusterRoleBinding exists
+    if oc get clusterrolebinding nginx-loadbalancer-binding &>/dev/null; then
+      echo "✓ ClusterRoleBinding exists"
+    else
+      echo "✗ ClusterRoleBinding missing"
+      exit 1
+    fi
+    
+    # Check SCC exists
+    if oc get scc nginx-loadbalancer-scc &>/dev/null; then
+      echo "✓ Security Context Constraint exists"
+    else
+      echo "✗ Security Context Constraint missing"
+      exit 1
+    fi
+    
+    # Check SCC assignment
+    if oc describe scc nginx-loadbalancer-scc | grep -q "{{ nginx_configuration.nginx_namespace }}:{{ nginx_configuration.nginx_service_account }}"; then
+      echo "✓ Service account added to SCC"
+    else
+      echo "✗ Service account not added to SCC"
+      exit 1
+    fi
+    
+    # Check Role bindings in target namespaces
+    for ns in {{ target_namespaces | join(' ') }}; do
+      if oc get rolebinding nginx-${ns}-binding -n $ns &>/dev/null; then
+        echo "✓ RoleBinding exists in $ns namespace"
+      else
+        echo "! RoleBinding missing in $ns namespace (may be normal)"
+      fi
+    done
+    
+    echo ""
+    echo "=== Service Account Details ==="
+    oc describe serviceaccount {{ nginx_configuration.nginx_service_account }} -n {{ nginx_configuration.nginx_namespace }}
+  register: rbac_verification
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Display RBAC verification results"
+  debug:
+    msg: "{{ rbac_verification.stdout }}"
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Create RBAC setup summary"
+  shell: |
+    timestamp=$(date +%s)
+    summary_file="/tmp/rbac_setup_summary_$timestamp.txt"
+    
+    echo "=== OpenShift RBAC Setup Summary ===" > $summary_file
+    echo "Date: $(date)" >> $summary_file
+    echo "Environment: {{ target_environment | default('dev') }}" >> $summary_file
+    echo "Cluster: {{ cluster_name }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "RBAC Configuration:" >> $summary_file
+    echo "- Namespace: {{ nginx_configuration.nginx_namespace }}" >> $summary_file
+    echo "- Service Account: {{ nginx_configuration.nginx_service_account }}" >> $summary_file
+    echo "- ClusterRole: nginx-loadbalancer-role" >> $summary_file
+    echo "- ClusterRoleBinding: nginx-loadbalancer-binding" >> $summary_file
+    echo "- Security Context Constraint: nginx-loadbalancer-scc" >> $summary_file
+    echo "" >> $summary_file
+    echo "Target Namespaces:" >> $summary_file
+    for ns in {{ target_namespaces | join(' ') }}; do
+      echo "- $ns" >> $summary_file
+    done
+    echo "" >> $summary_file
+    echo "Verification Results:" >> $summary_file
+    echo "{{ rbac_verification.stdout }}" >> $summary_file
+    
+    echo "Summary saved to: $summary_file"
+    echo ""
+    echo "=== Summary Contents ==="
+    cat $summary_file
+  register: rbac_summary
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Task 3 completion status"
+  debug:
+    msg: |
+      Task 3 - OpenShift RBAC and SCC Setup Complete
+      
+      Status: {{ 'SUCCESS' if rbac_verification.rc == 0 else 'FAILED' }}
+      
+      Components Created:
+      - Namespace: {{ nginx_configuration.nginx_namespace }}
+      - Service Account: {{ nginx_configuration.nginx_service_account }}
+      - ClusterRole: nginx-loadbalancer-role
+      - ClusterRoleBinding: nginx-loadbalancer-binding
+      - Security Context Constraint: nginx-loadbalancer-scc
+      - Role bindings for target namespaces
+      
+      Next Steps:
+      - Proceed to Task 4: AWS Load Balancer Controller Installation
+      - Service account ready for AWS IAM role association
+  tags: [loadbalancer, nginx, rbac, openshift]
+
+- name: "Fail if RBAC setup incomplete"
+  fail:
+    msg: "OpenShift RBAC setup failed. Check service account, roles, and SCC configuration."
+  when: rbac_verification.rc != 0
+  tags: [loadbalancer, nginx, rbac, openshift]

@@ -1,0 +1,33 @@
+galaxy_info:
+  author: SRE Team
+  description: ROSA Load Balancer Optimization Role
+  company: SVKTek
+  license: MIT
+  min_ansible_version: 2.12
+  platforms:
+    - name: EL
+      versions:
+        - 8
+        - 9
+    - name: Ubuntu
+      versions:
+        - 20.04
+        - 22.04
+    - name: MacOSX
+      versions:
+        - 10.15
+        - 11.0
+        - 12.0
+  galaxy_tags:
+    - rosa
+    - openshift
+    - aws
+    - loadbalancer
+    - alb
+    - kubernetes
+    - monitoring
+    - infrastructure
+    - optimization
+    - cost-saving
+
+dependencies: []

@@ -1,0 +1,65 @@
+---
+- name: "Debug environment variable"
+  debug:
+    msg: "Environment: '{{ target_environment | default(environment) }}', Playbook dir: '{{ playbook_dir }}'"
+  tags: [loadbalancer, config, alb-controller, alb-ingress, services, test, dns, cleanup]
+
+- name: "Load environment-specific loadbalancer configuration"
+  include_vars: "{{ playbook_dir }}/../environments/{{ target_environment | default(environment) }}/loadbalancer-config.yml"
+  tags: [loadbalancer, config, alb-controller, alb-ingress, services, test, dns, cleanup]
+
+- name: "ROSA Load Balancer Optimization Role"
+  debug:
+    msg: "Starting ROSA Load Balancer Optimization with {{ target_namespaces | length }} namespaces"
+
+- name: "Consolidate existing endpoints in available namespaces"
+  include_tasks: consolidate_endpoints.yml
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Setup AWS IAM for Load Balancer Controller"
+  include_tasks: setup_aws_iam.yml
+  tags: [loadbalancer, iam, aws-setup, config]
+
+- name: "Setup OpenShift RBAC and SCC"
+  include_tasks: setup_openshift_rbac.yml
+  tags: [loadbalancer, rbac, openshift, config]
+
+- name: "Install AWS Load Balancer Controller"
+  include_tasks: install_alb_controller.yml
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Deploy Nginx DaemonSet per Worker Node"
+  include_tasks: deploy_nginx_daemonset.yml
+  tags: [loadbalancer, nginx, daemonset]
+
+- name: "Create NodePort Service for Nginx"
+  include_tasks: create_nodeport_service.yml
+  tags: [loadbalancer, nodeport, service]
+
+- name: "Create ALB Ingress for SSL/DNS termination"
+  include_tasks: create_alb_ingress.yml
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Configure Route53 and ACM certificates"
+  include_tasks: configure_route53_acm.yml
+  tags: [loadbalancer, route53, acm, ssl]
+
+- name: "Identify services and convert to ClusterIP"
+  include_tasks: convert_services.yml
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Test and validate service endpoints"
+  include_tasks: test_endpoints.yml
+  tags: [loadbalancer, test, validation]
+
+- name: "Update with DNS and SSL certificates"
+  include_tasks: dns_ssl_setup.yml
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Final validation and cleanup old ELBs"
+  include_tasks: cleanup_old_elbs.yml
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Load Balancer optimization completed successfully"
+  debug:
+    msg: "All tasks completed. New ALB endpoint: {{ alb_domain_name }}"

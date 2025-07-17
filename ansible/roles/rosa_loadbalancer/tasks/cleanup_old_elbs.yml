@@ -1,0 +1,190 @@
+---
+- name: "Get current ALB status after optimization"
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: "{{ alb_configuration.alb_load_balancer_name }}-ingress"
+    namespace: "monitoring"
+  register: final_alb_ingress
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Test final ALB endpoint"
+  uri:
+    url: "https://{{ alb_configuration.alb_domain_name }}{{ service_path_mapping.grafana }}"
+    method: GET
+    status_code: [200, 301, 302]
+    timeout: 30
+    validate_certs: "{{ ssl_configuration.validate_ssl_certificates }}"
+  register: final_alb_test
+  retries: 3
+  delay: 10
+  ignore_errors: true
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Test all monitoring endpoints through ALB"
+  uri:
+    url: "https://{{ alb_configuration.alb_domain_name }}{{ item.path }}"
+    method: GET
+    status_code: [200, 301, 302]
+    timeout: 30
+    validate_certs: "{{ ssl_configuration.validate_ssl_certificates }}"
+  register: final_endpoint_tests
+  loop:
+    - { name: "grafana", path: "{{ service_path_mapping.grafana }}" }
+    - { name: "prometheus", path: "{{ service_path_mapping.prometheus }}" }
+    - { name: "alertmanager", path: "{{ service_path_mapping.alertmanager }}" }
+  retries: 3
+  delay: 10
+  ignore_errors: true
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Get all ELBs in the region"
+  shell: |
+    aws elbv2 describe-load-balancers --region {{ aws_region }} --query 'LoadBalancers[?contains(LoadBalancerName, `{{ cluster_name_prefix }}-{{ environment_name }}`) && !contains(LoadBalancerName, `{{ alb_configuration.alb_load_balancer_name }}`)].[LoadBalancerName,LoadBalancerArn,DNSName]' --output table
+  register: old_elbs
+  delegate_to: localhost
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Display old ELBs found"
+  debug:
+    msg: |
+      Old ELBs found for cleanup:
+      {{ old_elbs.stdout }}
+  when: old_elbs.stdout_lines | length > 3
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Get old ELB ARNs for cleanup"
+  shell: |
+    aws elbv2 describe-load-balancers --region {{ aws_region }} --query 'LoadBalancers[?contains(LoadBalancerName, `{{ cluster_name_prefix }}-{{ environment_name }}`) && !contains(LoadBalancerName, `{{ alb_configuration.alb_load_balancer_name }}`)].[LoadBalancerArn]' --output text
+  register: old_elb_arns
+  delegate_to: localhost
+  when: cleanup_configuration.cleanup_old_elbs
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Wait before cleanup to ensure new ALB is stable"
+  pause:
+    seconds: 60
+  when: 
+    - cleanup_configuration.cleanup_old_elbs
+    - old_elb_arns.stdout_lines | length > 0
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Delete old ELBs"
+  shell: |
+    aws elbv2 delete-load-balancer --load-balancer-arn {{ item }} --region {{ aws_region }}
+  loop: "{{ old_elb_arns.stdout_lines }}"
+  delegate_to: localhost
+  when: 
+    - cleanup_configuration.cleanup_old_elbs
+    - old_elb_arns.stdout_lines | length > 0
+    - item | trim != ""
+    - final_alb_test.status == 200
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Get orphaned target groups"
+  shell: |
+    aws elbv2 describe-target-groups --region {{ aws_region }} --query 'TargetGroups[?contains(TargetGroupName, `{{ cluster_name_prefix }}-{{ environment_name }}`) && length(LoadBalancerArns) == `0`].[TargetGroupArn]' --output text
+  register: orphaned_target_groups
+  delegate_to: localhost
+  when: cleanup_configuration.cleanup_old_elbs
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Delete orphaned target groups"
+  shell: |
+    aws elbv2 delete-target-group --target-group-arn {{ item }} --region {{ aws_region }}
+  loop: "{{ orphaned_target_groups.stdout_lines }}"
+  delegate_to: localhost
+  when: 
+    - cleanup_configuration.cleanup_old_elbs
+    - orphaned_target_groups.stdout_lines | length > 0
+    - item | trim != ""
+  ignore_errors: true
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Verify no old LoadBalancer services remain"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    namespace: "{{ item }}"
+    field_selectors:
+      - spec.type=LoadBalancer
+  register: remaining_lb_services
+  loop: "{{ target_namespaces }}"
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Display remaining LoadBalancer services"
+  debug:
+    msg: |
+      Remaining LoadBalancer services:
+      {% for result in remaining_lb_services.results %}
+      {% for service in result.resources %}
+      - {{ service.metadata.namespace }}/{{ service.metadata.name }}
+      {% endfor %}
+      {% endfor %}
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Create final optimization summary"
+  set_fact:
+    optimization_summary:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      environment: "{{ environment_name }}"
+      cluster: "{{ cluster_name_prefix }}-{{ environment_name }}"
+      alb_configuration:
+        name: "{{ alb_configuration.alb_load_balancer_name }}"
+        domain: "{{ alb_configuration.alb_domain_name }}"
+        hostname: "{{ final_alb_ingress.resources[0].status.loadBalancer.ingress[0].hostname if final_alb_ingress.resources[0].status.loadBalancer.ingress else 'Pending' }}"
+      services_converted: "{{ converted_services_summary | default([]) | length }}"
+      endpoints_tested: "{{ final_endpoint_tests.results | length }}"
+      ssl_enabled: "{{ (certificate_arn is defined or ssl_configuration.certificate_arn != '') | bool }}"
+      old_elbs_cleaned: "{{ old_elb_arns.stdout_lines | length if old_elb_arns is defined else 0 }}"
+      cost_savings: "{{ (old_elb_arns.stdout_lines | length if old_elb_arns is defined else 0) * 16 }}"
+      final_test_results:
+        grafana: "{{ final_endpoint_tests.results[0].status | default('FAILED') }}"
+        prometheus: "{{ final_endpoint_tests.results[1].status | default('FAILED') }}"
+        alertmanager: "{{ final_endpoint_tests.results[2].status | default('FAILED') }}"
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Save final optimization summary"
+  copy:
+    content: "{{ optimization_summary | to_nice_yaml }}"
+    dest: "/tmp/rosa_loadbalancer_optimization_summary_{{ ansible_date_time.epoch }}.yml"
+  delegate_to: localhost
+  tags: [loadbalancer, cleanup, validation]
+
+- name: "Display final optimization results"
+  debug:
+    msg: |
+      
+      ================================================================================
+      ROSA Load Balancer Optimization Complete
+      ================================================================================
+      
+      Environment: {{ environment_name }}
+      Cluster: {{ cluster_name_prefix }}-{{ environment_name }}
+      
+      New ALB Configuration:
+      - Name: {{ alb_configuration.alb_load_balancer_name }}
+      - Domain: {{ alb_configuration.alb_domain_name }}
+      - Hostname: {{ final_alb_ingress.resources[0].status.loadBalancer.ingress[0].hostname if final_alb_ingress.resources[0].status.loadBalancer.ingress else 'Pending' }}
+      
+      Services Optimized:
+      - Converted {{ converted_services_summary | default([]) | length }} services from LoadBalancer to ClusterIP
+      - Configured {{ final_endpoint_tests.results | length }} monitoring endpoints
+      - SSL/TLS: {{ 'Enabled' if (certificate_arn is defined or ssl_configuration.certificate_arn != '') else 'Disabled' }}
+      
+      Cost Optimization:
+      - Old ELBs cleaned up: {{ old_elb_arns.stdout_lines | length if old_elb_arns is defined else 0 }}
+      - Estimated monthly savings: ${{ (old_elb_arns.stdout_lines | length if old_elb_arns is defined else 0) * 16 }}
+      
+      Final Endpoint Tests:
+      - Grafana: {{ 'PASS' if final_endpoint_tests.results[0].status == 200 else 'FAIL' }}
+      - Prometheus: {{ 'PASS' if final_endpoint_tests.results[1].status == 200 else 'FAIL' }}
+      - Alertmanager: {{ 'PASS' if final_endpoint_tests.results[2].status == 200 else 'FAIL' }}
+      
+      Access URLs:
+      - Grafana: https://{{ alb_configuration.alb_domain_name }}{{ service_path_mapping.grafana }}
+      - Prometheus: https://{{ alb_configuration.alb_domain_name }}{{ service_path_mapping.prometheus }}
+      - Alertmanager: https://{{ alb_configuration.alb_domain_name }}{{ service_path_mapping.alertmanager }}
+      
+      ================================================================================
+  tags: [loadbalancer, cleanup, validation]

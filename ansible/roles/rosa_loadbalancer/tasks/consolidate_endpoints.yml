@@ -1,0 +1,73 @@
+---
+- name: "Get all services with LoadBalancer type across target namespaces"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    namespace: "{{ item }}"
+    field_selectors:
+      - spec.type=LoadBalancer
+  register: loadbalancer_services
+  loop: "{{ target_namespaces }}"
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Get all routes across target namespaces"
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    namespace: "{{ item }}"
+  register: existing_routes
+  loop: "{{ target_namespaces }}"
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Consolidate LoadBalancer services information"
+  set_fact:
+    current_loadbalancer_services: "{{ current_loadbalancer_services | default([]) + item.resources }}"
+  loop: "{{ loadbalancer_services.results }}"
+  when: item.resources | length > 0
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Consolidate routes information"
+  set_fact:
+    current_routes: "{{ current_routes | default([]) + item.resources }}"
+  loop: "{{ existing_routes.results }}"
+  when: item.resources | length > 0
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Display current LoadBalancer services"
+  debug:
+    msg: |
+      Found {{ current_loadbalancer_services | default([]) | length }} LoadBalancer services:
+      {% for service in current_loadbalancer_services | default([]) %}
+      - {{ service.metadata.namespace }}/{{ service.metadata.name }} -> {{ service.status.loadBalancer.ingress[0].hostname | default('pending') }}
+      {% endfor %}
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Display current routes"
+  debug:
+    msg: |
+      Found {{ current_routes | default([]) | length }} routes:
+      {% for route in current_routes | default([]) %}
+      - {{ route.metadata.namespace }}/{{ route.metadata.name }} -> {{ route.spec.host }}
+      {% endfor %}
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Create endpoint mapping for ALB Ingress"
+  set_fact:
+    service_endpoints: "{{ service_endpoints | default([]) + [endpoint_item] }}"
+  vars:
+    endpoint_item:
+      name: "{{ item.metadata.name }}"
+      namespace: "{{ item.metadata.namespace }}"
+      port: "{{ item.spec.ports[0].port }}"
+      path: "/{{ item.metadata.name }}"
+      current_hostname: "{{ item.status.loadBalancer.ingress[0].hostname | default('pending') }}"
+  loop: "{{ current_loadbalancer_services | default([]) }}"
+  tags: [loadbalancer, consolidate, endpoints]
+
+- name: "Save consolidated endpoints to file"
+  copy:
+    content: "{{ service_endpoints | to_nice_yaml }}"
+    dest: "/tmp/rosa_endpoints_{{ ansible_date_time.epoch }}.yml"
+  delegate_to: localhost
+  when: service_endpoints is defined
+  tags: [loadbalancer, consolidate, endpoints]

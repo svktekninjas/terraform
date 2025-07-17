@@ -1,0 +1,209 @@
+---
+- name: "Create NodePort Service for nginx Load Balancer"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: Service
+    metadata:
+      name: nginx-loadbalancer-nodeport
+      namespace: {{ nginx_configuration.nginx_namespace }}
+      labels:
+        app: nginx-loadbalancer
+        component: load-balancer
+        tier: infrastructure
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+        service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+        service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/health"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "{{ nginx_configuration.nginx_target_port }}"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "HTTP"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "30"
+        service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "6"
+        service.beta.kubernetes.io/aws-load-balancer-healthy-threshold: "2"
+        service.beta.kubernetes.io/aws-load-balancer-unhealthy-threshold: "2"
+    spec:
+      type: {{ nginx_configuration.nginx_service_type }}
+      ports:
+      - name: http
+        port: {{ nginx_configuration.nginx_port }}
+        targetPort: {{ nginx_configuration.nginx_target_port }}
+        nodePort: {{ nginx_configuration.nginx_node_port }}
+        protocol: TCP
+      selector:
+        app: nginx-loadbalancer
+      sessionAffinity: None
+      externalTrafficPolicy: Local
+    EOF
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Wait for NodePort Service to be ready"
+  shell: |
+    echo "Waiting for NodePort Service to be ready..."
+    timeout=120
+    while [ $timeout -gt 0 ]; do
+      service_exists=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.metadata.name}' 2>/dev/null || echo "")
+      
+      if [ -n "$service_exists" ]; then
+        echo "✓ NodePort Service is ready: $service_exists"
+        break
+      fi
+      
+      echo "Waiting for NodePort Service to be created..."
+      sleep 5
+      timeout=$((timeout - 5))
+    done
+    
+    if [ $timeout -le 0 ]; then
+      echo "✗ Timeout waiting for NodePort Service to be ready"
+      exit 1
+    fi
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Get NodePort Service details"
+  shell: |
+    echo "=== NodePort Service Status ==="
+    oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }}
+    echo ""
+    echo "=== NodePort Service Details ==="
+    oc describe service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }}
+    echo ""
+    echo "=== NodePort Service YAML ==="
+    oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o yaml
+  register: nodeport_service_details
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Display NodePort Service details"
+  debug:
+    msg: "{{ nodeport_service_details.stdout }}"
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Test NodePort Service connectivity"
+  shell: |
+    echo "=== Testing NodePort Service Connectivity ==="
+    
+    # Get service cluster IP and NodePort
+    cluster_ip=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.spec.clusterIP}')
+    node_port=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.spec.ports[0].nodePort}')
+    service_port=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.spec.ports[0].port}')
+    
+    echo "Service Details:"
+    echo "- Cluster IP: $cluster_ip"
+    echo "- Service Port: $service_port"
+    echo "- NodePort: $node_port"
+    echo ""
+    
+    # Test cluster IP connectivity
+    echo "Testing Cluster IP connectivity..."
+    if curl -s --connect-timeout 10 http://$cluster_ip:$service_port/health > /dev/null; then
+      echo "✓ Cluster IP connectivity: SUCCESS"
+    else
+      echo "✗ Cluster IP connectivity: FAILED"
+    fi
+    echo ""
+    
+    # Get worker node IPs for NodePort testing
+    echo "Worker node IPs:"
+    worker_ips=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}')
+    for ip in $worker_ips; do
+      echo "- $ip"
+    done
+    echo ""
+    
+    # Test NodePort connectivity on first worker node
+    first_worker_ip=$(echo $worker_ips | cut -d' ' -f1)
+    if [ -n "$first_worker_ip" ]; then
+      echo "Testing NodePort connectivity on $first_worker_ip:$node_port..."
+      if curl -s --connect-timeout 10 http://$first_worker_ip:$node_port/health > /dev/null; then
+        echo "✓ NodePort connectivity: SUCCESS"
+      else
+        echo "✗ NodePort connectivity: FAILED"
+      fi
+    fi
+    
+    echo ""
+    echo "=== Service Endpoints ==="
+    oc get endpoints nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }}
+  register: nodeport_connectivity_test
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Display NodePort connectivity test results"
+  debug:
+    msg: "{{ nodeport_connectivity_test.stdout }}"
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Create NodePort Service summary"
+  shell: |
+    timestamp=$(date +%s)
+    summary_file="/tmp/nodeport_service_summary_$timestamp.txt"
+    
+    echo "=== NodePort Service Creation Summary ===" > $summary_file
+    echo "Date: $(date)" >> $summary_file
+    echo "Environment: {{ target_environment | default('dev') }}" >> $summary_file
+    echo "Cluster: {{ cluster_name }}" >> $summary_file
+    echo "Namespace: {{ nginx_configuration.nginx_namespace }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Service Configuration:" >> $summary_file
+    echo "- Service Name: nginx-loadbalancer-nodeport" >> $summary_file
+    echo "- Service Type: {{ nginx_configuration.nginx_service_type }}" >> $summary_file
+    echo "- Service Port: {{ nginx_configuration.nginx_port }}" >> $summary_file
+    echo "- Target Port: {{ nginx_configuration.nginx_target_port }}" >> $summary_file
+    echo "- NodePort: {{ nginx_configuration.nginx_node_port }}" >> $summary_file
+    echo "- External Traffic Policy: Local" >> $summary_file
+    echo "" >> $summary_file
+    echo "Service Details:" >> $summary_file
+    echo "{{ nodeport_service_details.stdout }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Connectivity Test Results:" >> $summary_file
+    echo "{{ nodeport_connectivity_test.stdout }}" >> $summary_file
+    
+    echo "Summary saved to: $summary_file"
+    echo ""
+    echo "=== Summary Contents ==="
+    cat $summary_file
+  register: nodeport_summary
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Extract service information for ALB configuration"
+  shell: |
+    # Extract key information needed for ALB configuration
+    node_port=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.spec.ports[0].nodePort}')
+    cluster_ip=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.spec.clusterIP}')
+    service_name=$(oc get service nginx-loadbalancer-nodeport -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.metadata.name}')
+    
+    echo "NODEPORT_SERVICE_NAME=$service_name"
+    echo "NODEPORT_NUMBER=$node_port"
+    echo "CLUSTER_IP=$cluster_ip"
+    echo "TARGET_PORT={{ nginx_configuration.nginx_target_port }}"
+    echo "NAMESPACE={{ nginx_configuration.nginx_namespace }}"
+  register: nodeport_info
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Task 6 completion status"
+  debug:
+    msg: |
+      Task 6 - NodePort Service Creation Complete
+      
+      Status: {{ 'SUCCESS' if nodeport_connectivity_test.rc == 0 else 'FAILED' }}
+      
+      Components Created:
+      - NodePort Service: nginx-loadbalancer-nodeport
+      - Service Type: {{ nginx_configuration.nginx_service_type }}
+      - NodePort: {{ nginx_configuration.nginx_node_port }}
+      - Target Port: {{ nginx_configuration.nginx_target_port }}
+      - Health Check: /health endpoint
+      
+      Service Configuration:
+      {{ nodeport_info.stdout }}
+      
+      Next Steps:
+      - Proceed to Task 7: Create ALB Ingress for SSL/DNS termination
+      - NodePort service ready to receive traffic from ALB
+  tags: [loadbalancer, nginx, nodeport, service]
+
+- name: "Fail if NodePort Service creation failed"
+  fail:
+    msg: "NodePort Service creation failed. Check service configuration and connectivity."
+  when: nodeport_connectivity_test.rc != 0
+  tags: [loadbalancer, nginx, nodeport, service]

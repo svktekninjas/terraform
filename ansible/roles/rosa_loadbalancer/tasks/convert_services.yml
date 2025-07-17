@@ -1,0 +1,162 @@
+---
+- name: "Find LoadBalancer services in target namespaces"
+  shell: |
+    echo "=== LoadBalancer Services Found ==="
+    for ns in {{ target_namespaces | join(' ') }}; do
+      echo "Checking namespace: $ns"
+      oc get services -n $ns --no-headers | grep LoadBalancer || echo "No LoadBalancer services in $ns"
+    done
+  register: loadbalancer_services_check
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Display LoadBalancer services found"
+  debug:
+    msg: "{{ loadbalancer_services_check.stdout }}"
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Backup LoadBalancer service configurations"
+  shell: |
+    timestamp=$(date +%s)
+    backup_dir="/tmp/service_backup_$timestamp"
+    mkdir -p $backup_dir
+    
+    for ns in {{ target_namespaces | join(' ') }}; do
+      echo "Backing up LoadBalancer services in namespace: $ns"
+      oc get services -n $ns -o yaml | grep -A 50 -B 10 'type: LoadBalancer' > $backup_dir/loadbalancer_services_$ns.yaml || true
+    done
+    
+    echo "Backup completed in: $backup_dir"
+  when: cleanup_configuration.backup_old_configurations | default(true)
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Convert LoadBalancer services to ClusterIP in monitoring namespace"
+  shell: |
+    echo "=== Converting LoadBalancer services to ClusterIP in monitoring namespace ==="
+    
+    # Get all LoadBalancer services in monitoring namespace
+    services=$(oc get services -n monitoring --no-headers | grep LoadBalancer | awk '{print $1}')
+    
+    if [ -z "$services" ]; then
+      echo "No LoadBalancer services found in monitoring namespace"
+      exit 0
+    fi
+    
+    for service in $services; do
+      echo "Converting service: $service"
+      
+      # Get current service definition
+      oc get service $service -n monitoring -o yaml > /tmp/service_$service.yaml
+      
+      # Update service type to ClusterIP
+      oc patch service $service -n monitoring -p '{"spec":{"type":"ClusterIP"}}'
+      
+      # Remove LoadBalancer specific fields
+      oc patch service $service -n monitoring --type='json' -p='[{"op": "remove", "path": "/spec/loadBalancerIP"}]' || true
+      oc patch service $service -n monitoring --type='json' -p='[{"op": "remove", "path": "/spec/loadBalancerSourceRanges"}]' || true
+      oc patch service $service -n monitoring --type='json' -p='[{"op": "remove", "path": "/status/loadBalancer"}]' || true
+      
+      echo "Service $service converted to ClusterIP"
+    done
+  register: convert_monitoring_services
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Convert LoadBalancer services to ClusterIP in openshift-monitoring namespace"
+  shell: |
+    echo "=== Converting LoadBalancer services to ClusterIP in openshift-monitoring namespace ==="
+    
+    # Get all LoadBalancer services in openshift-monitoring namespace
+    services=$(oc get services -n openshift-monitoring --no-headers | grep LoadBalancer | awk '{print $1}')
+    
+    if [ -z "$services" ]; then
+      echo "No LoadBalancer services found in openshift-monitoring namespace"
+      exit 0
+    fi
+    
+    for service in $services; do
+      echo "Converting service: $service"
+      
+      # Get current service definition
+      oc get service $service -n openshift-monitoring -o yaml > /tmp/service_$service.yaml
+      
+      # Update service type to ClusterIP
+      oc patch service $service -n openshift-monitoring -p '{"spec":{"type":"ClusterIP"}}'
+      
+      # Remove LoadBalancer specific fields
+      oc patch service $service -n openshift-monitoring --type='json' -p='[{"op": "remove", "path": "/spec/loadBalancerIP"}]' || true
+      oc patch service $service -n openshift-monitoring --type='json' -p='[{"op": "remove", "path": "/spec/loadBalancerSourceRanges"}]' || true
+      oc patch service $service -n openshift-monitoring --type='json' -p='[{"op": "remove", "path": "/status/loadBalancer"}]' || true
+      
+      echo "Service $service converted to ClusterIP"
+    done
+  register: convert_openshift_monitoring_services
+  when: '"openshift-monitoring" in target_namespaces'
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Wait for services to stabilize"
+  shell: |
+    echo "Waiting for services to stabilize..."
+    sleep 10
+    
+    echo "=== Verifying converted services ==="
+    for ns in {{ target_namespaces | join(' ') }}; do
+      echo "Services in namespace $ns:"
+      oc get services -n $ns --no-headers | grep -E "(ClusterIP|LoadBalancer)" || echo "No services found"
+    done
+  register: service_verification
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Display conversion results"
+  debug:
+    msg: |
+      Service Conversion Results:
+      
+      Monitoring namespace conversion:
+      {{ convert_monitoring_services.stdout }}
+      
+      OpenShift monitoring namespace conversion:
+      {{ convert_openshift_monitoring_services.stdout if convert_openshift_monitoring_services.stdout is defined else 'Skipped' }}
+      
+      Final service verification:
+      {{ service_verification.stdout }}
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Verify no LoadBalancer services remain"
+  shell: |
+    echo "=== Final verification: Checking for remaining LoadBalancer services ==="
+    remaining_services=""
+    
+    for ns in {{ target_namespaces | join(' ') }}; do
+      lb_services=$(oc get services -n $ns --no-headers | grep LoadBalancer | awk '{print $1}' || true)
+      if [ -n "$lb_services" ]; then
+        remaining_services="$remaining_services\nNamespace $ns: $lb_services"
+      fi
+    done
+    
+    if [ -n "$remaining_services" ]; then
+      echo "WARNING: LoadBalancer services still exist:$remaining_services"
+      exit 1
+    else
+      echo "SUCCESS: All LoadBalancer services have been converted to ClusterIP"
+    fi
+  register: final_verification
+  tags: [loadbalancer, services, clusterip]
+
+- name: "Create conversion summary"
+  shell: |
+    timestamp=$(date +%s)
+    summary_file="/tmp/service_conversion_summary_$timestamp.txt"
+    
+    echo "=== Service Conversion Summary ===" > $summary_file
+    echo "Date: $(date)" >> $summary_file
+    echo "Target Namespaces: {{ target_namespaces | join(', ') }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Conversion Results:" >> $summary_file
+    echo "{{ convert_monitoring_services.stdout }}" >> $summary_file
+    echo "{{ convert_openshift_monitoring_services.stdout if convert_openshift_monitoring_services.stdout is defined else 'OpenShift monitoring: Skipped' }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Final Verification:" >> $summary_file
+    echo "{{ final_verification.stdout }}" >> $summary_file
+    
+    echo "Summary saved to: $summary_file"
+    cat $summary_file
+  tags: [loadbalancer, services, clusterip]

@@ -1,0 +1,215 @@
+---
+- name: "Get current ALB hostname"
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: "{{ alb_configuration.alb_load_balancer_name }}-ingress"
+    namespace: "monitoring"
+  register: current_alb_ingress
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Extract ALB hostname for DNS setup"
+  set_fact:
+    current_alb_hostname: "{{ current_alb_ingress.resources[0].status.loadBalancer.ingress[0].hostname }}"
+  when: 
+    - current_alb_ingress.resources | length > 0
+    - current_alb_ingress.resources[0].status.loadBalancer.ingress | length > 0
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Check if ACM certificate exists"
+  shell: |
+    aws acm list-certificates --region {{ aws_region }} --query 'CertificateSummaryList[?DomainName==`{{ alb_configuration.alb_domain_name }}`].CertificateArn' --output text
+  register: existing_certificate
+  delegate_to: localhost
+  when: ssl_configuration.certificate_arn == ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Create Route53 hosted zone if it doesn't exist"
+  route53_zone:
+    zone: "{{ alb_configuration.base_domain }}"
+    state: present
+  register: hosted_zone
+  delegate_to: localhost
+  when: current_alb_hostname is defined
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Create DNS CNAME record for ALB"
+  route53:
+    state: present
+    zone: "{{ alb_configuration.base_domain }}"
+    record: "{{ alb_configuration.alb_domain_name }}"
+    type: CNAME
+    value: "{{ current_alb_hostname }}"
+    ttl: 300
+    overwrite: true
+  delegate_to: localhost
+  when: current_alb_hostname is defined
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Request ACM certificate if not exists"
+  shell: |
+    aws acm request-certificate \
+      --domain-name {{ alb_configuration.alb_domain_name }} \
+      --validation-method DNS \
+      --region {{ aws_region }} \
+      --query 'CertificateArn' \
+      --output text
+  register: new_certificate
+  delegate_to: localhost
+  when: 
+    - ssl_configuration.certificate_arn == ""
+    - existing_certificate.stdout == ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Set certificate ARN fact"
+  set_fact:
+    certificate_arn: "{{ existing_certificate.stdout if existing_certificate.stdout != '' else new_certificate.stdout }}"
+  when: ssl_configuration.certificate_arn == ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Get certificate validation records"
+  shell: |
+    aws acm describe-certificate \
+      --certificate-arn {{ certificate_arn | default(ssl_configuration.certificate_arn) }} \
+      --region {{ aws_region }} \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord' \
+      --output json
+  register: validation_record
+  delegate_to: localhost
+  when: certificate_arn is defined or ssl_configuration.certificate_arn != ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Create DNS validation record for certificate"
+  route53:
+    state: present
+    zone: "{{ alb_configuration.base_domain }}"
+    record: "{{ (validation_record.stdout | from_json).Name }}"
+    type: "{{ (validation_record.stdout | from_json).Type }}"
+    value: "{{ (validation_record.stdout | from_json).Value }}"
+    ttl: 60
+  delegate_to: localhost
+  when: 
+    - validation_record.stdout is defined
+    - validation_record.stdout != ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Wait for certificate validation"
+  shell: |
+    aws acm wait certificate-validated \
+      --certificate-arn {{ certificate_arn | default(ssl_configuration.certificate_arn) }} \
+      --region {{ aws_region }}
+  delegate_to: localhost
+  when: certificate_arn is defined or ssl_configuration.certificate_arn != ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Update ALB Ingress with SSL certificate"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: "{{ alb_configuration.alb_load_balancer_name }}-ingress"
+        namespace: "monitoring"
+        annotations:
+          kubernetes.io/ingress.class: alb
+          alb.ingress.kubernetes.io/scheme: "{{ alb_configuration.alb_scheme }}"
+          alb.ingress.kubernetes.io/target-type: "{{ alb_configuration.alb_target_type }}"
+          alb.ingress.kubernetes.io/group.name: "{{ alb_configuration.alb_group_name }}"
+          alb.ingress.kubernetes.io/load-balancer-name: "{{ alb_configuration.alb_load_balancer_name }}"
+          alb.ingress.kubernetes.io/certificate-arn: "{{ certificate_arn | default(ssl_configuration.certificate_arn) }}"
+          alb.ingress.kubernetes.io/ssl-redirect: "{{ ssl_configuration.ssl_redirect_port }}"
+          alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+          alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS-1-2-2017-01"
+          alb.ingress.kubernetes.io/healthcheck-path: "{{ healthcheck_configuration.healthcheck_path }}"
+          alb.ingress.kubernetes.io/healthcheck-interval-seconds: "{{ healthcheck_configuration.healthcheck_interval }}"
+          alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "{{ healthcheck_configuration.healthcheck_timeout }}"
+          alb.ingress.kubernetes.io/healthy-threshold-count: "{{ healthcheck_configuration.healthy_threshold }}"
+          alb.ingress.kubernetes.io/unhealthy-threshold-count: "{{ healthcheck_configuration.unhealthy_threshold }}"
+          alb.ingress.kubernetes.io/tags: "{{ alb_tags | to_json }}"
+      spec:
+        tls:
+        - hosts:
+          - "{{ alb_configuration.alb_domain_name }}"
+          secretName: "{{ alb_configuration.alb_load_balancer_name }}-tls"
+        rules:
+        - host: "{{ alb_configuration.alb_domain_name }}"
+          http:
+            paths:
+            - path: "{{ service_path_mapping.grafana }}"
+              pathType: Prefix
+              backend:
+                service:
+                  name: grafana
+                  port:
+                    number: 3000
+            - path: "{{ service_path_mapping.prometheus }}"
+              pathType: Prefix
+              backend:
+                service:
+                  name: prometheus
+                  port:
+                    number: 9090
+            - path: "{{ service_path_mapping.alertmanager }}"
+              pathType: Prefix
+              backend:
+                service:
+                  name: alertmanager
+                  port:
+                    number: 9093
+    state: present
+  when: certificate_arn is defined or ssl_configuration.certificate_arn != ""
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Wait for ALB to update with SSL"
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: "{{ alb_configuration.alb_load_balancer_name }}-ingress"
+    namespace: "monitoring"
+    wait: true
+    wait_timeout: 300
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Test HTTPS endpoint after SSL setup"
+  uri:
+    url: "https://{{ alb_configuration.alb_domain_name }}{{ service_path_mapping.grafana }}"
+    method: GET
+    status_code: [200, 301, 302]
+    timeout: 30
+    validate_certs: "{{ ssl_configuration.validate_ssl_certificates }}"
+  register: https_test_post_ssl
+  retries: 5
+  delay: 30
+  ignore_errors: true
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Display DNS and SSL setup results"
+  debug:
+    msg: |
+      DNS and SSL Setup Results:
+      - Domain: {{ alb_configuration.alb_domain_name }}
+      - ALB Hostname: {{ current_alb_hostname | default('Not Available') }}
+      - Certificate ARN: {{ certificate_arn | default(ssl_configuration.certificate_arn) | default('Not configured') }}
+      - DNS Record: {{ 'Created' if current_alb_hostname is defined else 'Skipped' }}
+      - SSL Certificate: {{ 'Configured' if (certificate_arn is defined or ssl_configuration.certificate_arn != '') else 'Not configured' }}
+      - HTTPS Test: {{ 'PASS' if https_test_post_ssl.status == 200 else 'FAIL' }}
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Create DNS/SSL setup summary"
+  set_fact:
+    dns_ssl_summary:
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      environment: "{{ environment_name }}"
+      domain: "{{ alb_configuration.alb_domain_name }}"
+      alb_hostname: "{{ current_alb_hostname | default('Not Available') }}"
+      certificate_arn: "{{ certificate_arn | default(ssl_configuration.certificate_arn) | default('Not configured') }}"
+      ssl_enabled: "{{ (certificate_arn is defined or ssl_configuration.certificate_arn != '') | bool }}"
+      https_test_result: "{{ https_test_post_ssl.status | default('FAILED') }}"
+  tags: [loadbalancer, dns, ssl, security]
+
+- name: "Save DNS/SSL setup summary"
+  copy:
+    content: "{{ dns_ssl_summary | to_nice_yaml }}"
+    dest: "/tmp/dns_ssl_setup_summary_{{ ansible_date_time.epoch }}.yml"
+  delegate_to: localhost
+  tags: [loadbalancer, dns, ssl, security]

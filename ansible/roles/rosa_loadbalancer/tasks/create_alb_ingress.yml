@@ -1,0 +1,225 @@
+---
+- name: "Check if aws-load-balancer-controller namespace exists"
+  shell: |
+    if oc get namespace aws-load-balancer-controller &>/dev/null; then
+      echo "Namespace aws-load-balancer-controller exists"
+    else
+      echo "Namespace aws-load-balancer-controller does not exist"
+      exit 1
+    fi
+  register: alb_namespace_check
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Create ALB Ingress for SSL/DNS termination"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: monitoring-alb-ingress
+      namespace: aws-load-balancer-controller
+      labels:
+        app: monitoring-load-balancer
+        component: alb-ingress
+        tier: infrastructure
+        environment: {{ target_environment | default('dev') }}
+      annotations:
+        # ALB Configuration
+        kubernetes.io/ingress.class: "alb"
+        alb.ingress.kubernetes.io/scheme: {{ alb_configuration.alb_scheme }}
+        alb.ingress.kubernetes.io/target-type: {{ alb_configuration.alb_target_type }}
+        alb.ingress.kubernetes.io/group.name: {{ alb_configuration.alb_group_name }}
+        alb.ingress.kubernetes.io/load-balancer-name: {{ alb_configuration.alb_load_balancer_name }}
+        
+        # SSL Configuration
+        alb.ingress.kubernetes.io/ssl-redirect: "{{ ssl_configuration.ssl_redirect_enabled | lower }}"
+        alb.ingress.kubernetes.io/certificate-arn: "{{ ssl_configuration.certificate_arn | default('') }}"
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+        
+        # Health Check Configuration
+        alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+        alb.ingress.kubernetes.io/healthcheck-port: "{{ nginx_configuration.nginx_target_port }}"
+        alb.ingress.kubernetes.io/healthcheck-path: "/health"
+        alb.ingress.kubernetes.io/healthcheck-interval-seconds: "{{ healthcheck_configuration.healthcheck_interval }}"
+        alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "{{ healthcheck_configuration.healthcheck_timeout }}"
+        alb.ingress.kubernetes.io/healthy-threshold-count: "{{ healthcheck_configuration.healthy_threshold }}"
+        alb.ingress.kubernetes.io/unhealthy-threshold-count: "{{ healthcheck_configuration.unhealthy_threshold }}"
+        
+        # ALB Attributes
+        alb.ingress.kubernetes.io/load-balancer-attributes: "routing.http2.enabled=true,idle_timeout.timeout_seconds=60,deletion_protection.enabled=false,access_logs.s3.enabled=false"
+        
+        # Target Group Attributes
+        alb.ingress.kubernetes.io/target-group-attributes: "deregistration_delay.timeout_seconds=30,stickiness.enabled=false,load_balancing.algorithm.type=round_robin"
+        
+        # Security and Network
+        alb.ingress.kubernetes.io/security-groups: "{{ network_configuration.cluster_security_group_id }}"
+        alb.ingress.kubernetes.io/subnets: "{{ network_configuration.public_subnet_ids | join(',') }}"
+        
+        # Tags
+        alb.ingress.kubernetes.io/tags: "Environment={{ alb_tags.Environment }},Project={{ alb_tags.Project }},Owner={{ alb_tags.Owner }},Purpose={{ alb_tags.Purpose }},CostCenter={{ alb_tags.CostCenter }},ManagedBy=ansible-rosa-loadbalancer"
+    spec:
+      rules:
+      - host: {{ alb_configuration.alb_domain_name }}
+        http:
+          paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: {{ service_path_mapping.grafana }}
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: {{ service_path_mapping.prometheus }}
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: {{ service_path_mapping.alertmanager }}
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: {{ service_path_mapping['openshift-prometheus'] }}
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+          - path: {{ service_path_mapping['openshift-alertmanager'] }}
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx-loadbalancer-nodeport
+                namespace: {{ nginx_configuration.nginx_namespace }}
+                port:
+                  number: {{ nginx_configuration.nginx_port }}
+      {% if ssl_configuration.certificate_arn %}
+      tls:
+      - hosts:
+        - {{ alb_configuration.alb_domain_name }}
+        secretName: monitoring-alb-tls
+      {% endif %}
+    EOF
+  register: alb_ingress_creation
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Wait for ALB Ingress to be ready"
+  shell: |
+    echo "Waiting for ALB Ingress to be ready..."
+    timeout=300
+    while [ $timeout -gt 0 ]; do
+      ingress_ready=$(oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+      
+      if [ -n "$ingress_ready" ]; then
+        echo "✓ ALB Ingress is ready with hostname: $ingress_ready"
+        break
+      fi
+      
+      echo "Waiting for ALB Ingress to get hostname..."
+      sleep 15
+      timeout=$((timeout - 15))
+    done
+    
+    if [ $timeout -le 0 ]; then
+      echo "⚠ Timeout waiting for ALB Ingress hostname, but continuing..."
+    fi
+  register: alb_ingress_wait
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Get ALB Ingress details"
+  shell: |
+    echo "=== ALB Ingress Status ==="
+    oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller
+    echo ""
+    echo "=== ALB Ingress Details ==="
+    oc describe ingress monitoring-alb-ingress -n aws-load-balancer-controller
+    echo ""
+    echo "=== ALB Ingress YAML ==="
+    oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller -o yaml
+  register: alb_ingress_details
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Display ALB Ingress details"
+  debug:
+    msg: "{{ alb_ingress_details.stdout }}"
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Extract ALB information"
+  shell: |
+    # Extract ALB hostname and other details
+    alb_hostname=$(oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+    alb_class=$(oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller -o jsonpath='{.spec.ingressClassName}' 2>/dev/null || echo "")
+    alb_rules=$(oc get ingress monitoring-alb-ingress -n aws-load-balancer-controller -o jsonpath='{.spec.rules[*].host}' 2>/dev/null || echo "")
+    
+    echo "ALB_HOSTNAME=$alb_hostname"
+    echo "ALB_CLASS=$alb_class"
+    echo "ALB_RULES=$alb_rules"
+    echo "ALB_DOMAIN={{ alb_configuration.alb_domain_name }}"
+    echo "ALB_SCHEME={{ alb_configuration.alb_scheme }}"
+    echo "ALB_TARGET_TYPE={{ alb_configuration.alb_target_type }}"
+    echo "ALB_GROUP_NAME={{ alb_configuration.alb_group_name }}"
+  register: alb_info
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Task 7 completion status"
+  debug:
+    msg: |
+      Task 7 - ALB Ingress Creation Complete
+      
+      Status: {{ 'SUCCESS' if alb_ingress_creation.rc == 0 else 'FAILED' }}
+      
+      Components Created:
+      - ALB Ingress: monitoring-alb-ingress
+      - Namespace: aws-load-balancer-controller
+      - Domain: {{ alb_configuration.alb_domain_name }}
+      - Target Service: nginx-loadbalancer-nodeport ({{ nginx_configuration.nginx_namespace }} namespace)
+      - SSL Configuration: {{ 'Enabled' if ssl_configuration.certificate_arn else 'Disabled' }}
+      
+      ALB Information:
+      {{ alb_info.stdout }}
+      
+      Path Routing Configuration:
+      - Root: / → nginx-loadbalancer-nodeport
+      - Health: /health → nginx-loadbalancer-nodeport
+      - Grafana: {{ service_path_mapping.grafana }} → nginx-loadbalancer-nodeport
+      - Prometheus: {{ service_path_mapping.prometheus }} → nginx-loadbalancer-nodeport
+      - Alertmanager: {{ service_path_mapping.alertmanager }} → nginx-loadbalancer-nodeport
+      - OpenShift Prometheus: {{ service_path_mapping['openshift-prometheus'] }} → nginx-loadbalancer-nodeport
+      - OpenShift Alertmanager: {{ service_path_mapping['openshift-alertmanager'] }} → nginx-loadbalancer-nodeport
+      
+      Next Steps:
+      - Proceed to Task 8: Configure Route53 and ACM certificates
+      - Update DNS records to point to ALB hostname
+      - Configure SSL certificates for secure access
+  tags: [loadbalancer, alb-ingress, ssl, dns]
+
+- name: "Fail if ALB Ingress creation failed"
+  fail:
+    msg: "ALB Ingress creation failed. Check ALB Controller status and configuration."
+  when: alb_ingress_creation.rc != 0
+  tags: [loadbalancer, alb-ingress, ssl, dns]

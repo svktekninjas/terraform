@@ -19,6 +19,8 @@
       tags: ['cluster', 'rosa-cluster']
     - role: monitoring
       tags: ['monitoring', 'observability']
+    - role: rosa_loadbalancer
+      tags: ['loadbalancer', 'optimization', 'alb']
   
   post_tasks:
     - name: Display playbook completion

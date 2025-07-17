@@ -1,0 +1,74 @@
+# Production Environment Load Balancer Configuration
+---
+# Environment Configuration
+environment_name: "prod"
+environment_suffix: "prod"
+
+# ALB Configuration
+alb_configuration:
+  base_domain: "svktek-prod.example.com"
+  alb_domain_name: "svktek-prod.rosa.example.com"
+  alb_load_balancer_name: "monitoring-alb-prod"
+  alb_scheme: "internet-facing"
+  alb_target_type: "instance"
+  alb_group_name: "monitoring-prod"
+
+# SSL/TLS Configuration
+ssl_configuration:
+  ssl_redirect_enabled: true
+  ssl_redirect_port: 443
+  certificate_arn: ""  # REQUIRED: Add ACM certificate ARN for SSL in production
+  validate_ssl_certificates: true
+
+# Target Namespaces for Load Balancer Optimization
+target_namespaces:
+  - "monitoring"
+
+# Service Path Mapping
+service_path_mapping:
+  grafana: "/grafana"
+  prometheus: "/prometheus"
+  alertmanager: "/alertmanager"
+  openshift-prometheus: "/openshift-prometheus"
+  openshift-alertmanager: "/openshift-alertmanager"
+
+# Health Check Configuration
+healthcheck_configuration:
+  healthcheck_path: "/"
+  healthcheck_interval: 15
+  healthcheck_timeout: 5
+  healthy_threshold: 2
+  unhealthy_threshold: 3
+
+# ALB Tags
+alb_tags:
+  Environment: "prod"
+  Project: "ROSA"
+  Owner: "SRE-Team"
+  Purpose: "Monitoring"
+  CostCenter: "Engineering"
+  BackupPolicy: "Daily"
+  Compliance: "Required"
+
+# Validation and Testing
+validation_configuration:
+  endpoint_test_timeout: 120
+  endpoint_test_retries: 10
+  validate_endpoints_after_creation: true
+  fail_on_validation_error: true
+
+# Cleanup Configuration
+cleanup_configuration:
+  cleanup_old_elbs: true
+  cleanup_timeout: 600
+  backup_old_configurations: true
+
+# Production specific settings
+prod_settings:
+  debug_mode: false
+  verbose_logging: false
+  enable_debug_annotations: false
+  skip_ssl_validation: false
+  allow_insecure_connections: false
+  enable_monitoring_alerts: true
+  enable_cost_monitoring: true

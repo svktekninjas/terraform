@@ -1,0 +1,406 @@
+---
+- name: "Create nginx configuration ConfigMap"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: {{ nginx_configuration.nginx_config_map_name }}
+      namespace: {{ nginx_configuration.nginx_namespace }}
+    data:
+      nginx.conf: |
+        pid /var/run/nginx/nginx.pid;
+        
+        events {
+          worker_connections 1024;
+        }
+        
+        http {
+          include /etc/nginx/mime.types;
+          default_type application/octet-stream;
+          
+          # Cache and temporary paths for read-only filesystem
+          client_body_temp_path /tmp/client_temp;
+          proxy_temp_path /tmp/proxy_temp;
+          fastcgi_temp_path /tmp/fastcgi_temp;
+          uwsgi_temp_path /tmp/uwsgi_temp;
+          scgi_temp_path /tmp/scgi_temp;
+          
+          # Log format
+          log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                          '\$status \$body_bytes_sent "\$http_referer" '
+                          '"\$http_user_agent" "\$http_x_forwarded_for"';
+          
+          access_log /var/log/nginx/access.log main;
+          error_log /var/log/nginx/error.log;
+          
+          # Gzip compression
+          gzip on;
+          gzip_vary on;
+          gzip_min_length 1024;
+          gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+          
+          # Upstream definitions for monitoring services
+          upstream grafana {
+            server grafana.monitoring.svc.cluster.local:3000;
+          }
+          
+          upstream prometheus {
+            server prometheus.monitoring.svc.cluster.local:9090;
+          }
+          
+          upstream alertmanager {
+            server alertmanager-main.openshift-monitoring.svc.cluster.local:9093;
+          }
+          
+          upstream prometheus-k8s {
+            server prometheus-k8s.openshift-monitoring.svc.cluster.local:9090;
+          }
+          
+          upstream thanos-querier {
+            server thanos-querier.openshift-monitoring.svc.cluster.local:9090;
+          }
+          
+          # Main server block
+          server {
+            listen {{ nginx_configuration.nginx_target_port }};
+            server_name _;
+            
+            # Health check endpoint
+            location /health {
+              access_log off;
+              return 200 "healthy\n";
+              add_header Content-Type text/plain;
+            }
+            
+            # Grafana path-based routing
+            location {{ service_path_mapping.grafana }} {
+              proxy_pass http://grafana;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_set_header X-Forwarded-Host \$host;
+              proxy_set_header X-Forwarded-Port \$server_port;
+              
+              # Remove path prefix for backend
+              rewrite ^{{ service_path_mapping.grafana }}(.*)$ \$1 break;
+              
+              # Timeouts
+              proxy_connect_timeout 30s;
+              proxy_send_timeout 30s;
+              proxy_read_timeout 30s;
+            }
+            
+            # Prometheus path-based routing
+            location {{ service_path_mapping.prometheus }} {
+              proxy_pass http://prometheus;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_set_header X-Forwarded-Host \$host;
+              proxy_set_header X-Forwarded-Port \$server_port;
+              
+              # Remove path prefix for backend
+              rewrite ^{{ service_path_mapping.prometheus }}(.*)$ \$1 break;
+              
+              # Timeouts
+              proxy_connect_timeout 30s;
+              proxy_send_timeout 30s;
+              proxy_read_timeout 30s;
+            }
+            
+            # Alertmanager path-based routing
+            location {{ service_path_mapping.alertmanager }} {
+              proxy_pass http://alertmanager;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_set_header X-Forwarded-Host \$host;
+              proxy_set_header X-Forwarded-Port \$server_port;
+              
+              # Remove path prefix for backend
+              rewrite ^{{ service_path_mapping.alertmanager }}(.*)$ \$1 break;
+              
+              # Timeouts
+              proxy_connect_timeout 30s;
+              proxy_send_timeout 30s;
+              proxy_read_timeout 30s;
+            }
+            
+            # OpenShift Prometheus path-based routing
+            location {{ service_path_mapping['openshift-prometheus'] }} {
+              proxy_pass http://prometheus-k8s;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_set_header X-Forwarded-Host \$host;
+              proxy_set_header X-Forwarded-Port \$server_port;
+              
+              # Remove path prefix for backend
+              rewrite ^{{ service_path_mapping['openshift-prometheus'] }}(.*)$ \$1 break;
+              
+              # Timeouts
+              proxy_connect_timeout 30s;
+              proxy_send_timeout 30s;
+              proxy_read_timeout 30s;
+            }
+            
+            # OpenShift Alertmanager path-based routing
+            location {{ service_path_mapping['openshift-alertmanager'] }} {
+              proxy_pass http://alertmanager;
+              proxy_set_header Host \$host;
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto \$scheme;
+              proxy_set_header X-Forwarded-Host \$host;
+              proxy_set_header X-Forwarded-Port \$server_port;
+              
+              # Remove path prefix for backend
+              rewrite ^{{ service_path_mapping['openshift-alertmanager'] }}(.*)$ \$1 break;
+              
+              # Timeouts
+              proxy_connect_timeout 30s;
+              proxy_send_timeout 30s;
+              proxy_read_timeout 30s;
+            }
+            
+            # Default location for health checks and root
+            location / {
+              return 200 "Nginx Load Balancer - Monitoring Services\n";
+              add_header Content-Type text/plain;
+            }
+          }
+        }
+    EOF
+  tags: [loadbalancer, nginx, daemonset, config]
+
+- name: "Deploy nginx DaemonSet"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: nginx-loadbalancer
+      namespace: {{ nginx_configuration.nginx_namespace }}
+      labels:
+        app: nginx-loadbalancer
+        component: load-balancer
+        tier: infrastructure
+    spec:
+      selector:
+        matchLabels:
+          app: nginx-loadbalancer
+      template:
+        metadata:
+          labels:
+            app: nginx-loadbalancer
+            component: load-balancer
+            tier: infrastructure
+        spec:
+          serviceAccountName: {{ nginx_configuration.nginx_service_account }}
+          hostNetwork: false
+          dnsPolicy: ClusterFirst
+          nodeSelector:
+            {{ worker_node_configuration.worker_node_selector | to_yaml | indent(12) }}
+          tolerations:
+            {{ worker_node_configuration.worker_node_tolerations | to_yaml | indent(12) }}
+          containers:
+          - name: nginx
+            image: {{ nginx_configuration.nginx_image }}
+            ports:
+            - containerPort: {{ nginx_configuration.nginx_target_port }}
+              protocol: TCP
+              name: http
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            volumeMounts:
+            - name: {{ nginx_configuration.nginx_config_volume_name }}
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: {{ nginx_configuration.nginx_log_volume_name }}
+              mountPath: /var/log/nginx
+            - name: nginx-cache
+              mountPath: /tmp
+            - name: nginx-var-run
+              mountPath: /var/run/nginx
+            livenessProbe:
+              httpGet:
+                path: /health
+                port: {{ nginx_configuration.nginx_target_port }}
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+              failureThreshold: 3
+            readinessProbe:
+              httpGet:
+                path: /health
+                port: {{ nginx_configuration.nginx_target_port }}
+              initialDelaySeconds: 5
+              periodSeconds: 5
+              timeoutSeconds: 3
+              failureThreshold: 3
+            securityContext:
+              allowPrivilegeEscalation: false
+              runAsNonRoot: true
+              runAsUser: 1000
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop:
+                - ALL
+          volumes:
+          - name: {{ nginx_configuration.nginx_config_volume_name }}
+            configMap:
+              name: {{ nginx_configuration.nginx_config_map_name }}
+          - name: {{ nginx_configuration.nginx_log_volume_name }}
+            emptyDir: {}
+          - name: nginx-cache
+            emptyDir: {}
+          - name: nginx-var-run
+            emptyDir: {}
+          restartPolicy: Always
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1
+    EOF
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Wait for nginx DaemonSet to be ready"
+  shell: |
+    echo "Waiting for nginx DaemonSet to be ready..."
+    timeout=300
+    while [ $timeout -gt 0 ]; do
+      desired=$(oc get daemonset nginx-loadbalancer -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "0")
+      ready=$(oc get daemonset nginx-loadbalancer -n {{ nginx_configuration.nginx_namespace }} -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "0")
+      
+      if [ "$desired" -gt 0 ] && [ "$ready" -eq "$desired" ]; then
+        echo "✓ nginx DaemonSet is ready: $ready/$desired pods"
+        break
+      fi
+      
+      echo "Waiting for nginx DaemonSet: $ready/$desired pods ready"
+      sleep 10
+      timeout=$((timeout - 10))
+    done
+    
+    if [ $timeout -le 0 ]; then
+      echo "✗ Timeout waiting for nginx DaemonSet to be ready"
+      exit 1
+    fi
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Get nginx DaemonSet status"
+  shell: |
+    echo "=== nginx DaemonSet Status ==="
+    oc get daemonset nginx-loadbalancer -n {{ nginx_configuration.nginx_namespace }}
+    echo ""
+    echo "=== nginx Pods Status ==="
+    oc get pods -n {{ nginx_configuration.nginx_namespace }} -l app=nginx-loadbalancer
+    echo ""
+    echo "=== nginx Pod Details ==="
+    oc describe daemonset nginx-loadbalancer -n {{ nginx_configuration.nginx_namespace }}
+  register: nginx_daemonset_status
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Display nginx DaemonSet status"
+  debug:
+    msg: "{{ nginx_daemonset_status.stdout }}"
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Verify nginx configuration"
+  shell: |
+    echo "=== Verifying nginx Configuration ==="
+    
+    # Get one of the nginx pods
+    nginx_pod=$(oc get pods -n {{ nginx_configuration.nginx_namespace }} -l app=nginx-loadbalancer -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    
+    if [ -n "$nginx_pod" ]; then
+      echo "Testing nginx configuration in pod: $nginx_pod"
+      
+      # Test nginx configuration syntax
+      oc exec -n {{ nginx_configuration.nginx_namespace }} $nginx_pod -- nginx -t
+      
+      # Test health endpoint
+      oc exec -n {{ nginx_configuration.nginx_namespace }} $nginx_pod -- curl -s http://localhost:{{ nginx_configuration.nginx_target_port }}/health
+      
+      echo "✓ nginx configuration verified"
+    else
+      echo "✗ No nginx pods found"
+      exit 1
+    fi
+  register: nginx_config_verification
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Display nginx configuration verification"
+  debug:
+    msg: "{{ nginx_config_verification.stdout }}"
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Create nginx DaemonSet summary"
+  shell: |
+    timestamp=$(date +%s)
+    summary_file="/tmp/nginx_daemonset_summary_$timestamp.txt"
+    
+    echo "=== nginx DaemonSet Deployment Summary ===" > $summary_file
+    echo "Date: $(date)" >> $summary_file
+    echo "Environment: {{ target_environment | default('dev') }}" >> $summary_file
+    echo "Cluster: {{ cluster_name }}" >> $summary_file
+    echo "Namespace: {{ nginx_configuration.nginx_namespace }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "nginx Configuration:" >> $summary_file
+    echo "- Image: {{ nginx_configuration.nginx_image }}" >> $summary_file
+    echo "- Target Port: {{ nginx_configuration.nginx_target_port }}" >> $summary_file
+    echo "- Service Account: {{ nginx_configuration.nginx_service_account }}" >> $summary_file
+    echo "- ConfigMap: {{ nginx_configuration.nginx_config_map_name }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Path Routing Configuration:" >> $summary_file
+    echo "- Grafana: {{ service_path_mapping.grafana }}" >> $summary_file
+    echo "- Prometheus: {{ service_path_mapping.prometheus }}" >> $summary_file
+    echo "- Alertmanager: {{ service_path_mapping.alertmanager }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "DaemonSet Status:" >> $summary_file
+    echo "{{ nginx_daemonset_status.stdout }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Configuration Verification:" >> $summary_file
+    echo "{{ nginx_config_verification.stdout }}" >> $summary_file
+    
+    echo "Summary saved to: $summary_file"
+    echo ""
+    echo "=== Summary Contents ==="
+    cat $summary_file
+  register: nginx_summary
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Task 5 completion status"
+  debug:
+    msg: |
+      Task 5 - nginx DaemonSet Deployment Complete
+      
+      Status: {{ 'SUCCESS' if nginx_config_verification.rc == 0 else 'FAILED' }}
+      
+      Components Created:
+      - nginx ConfigMap: {{ nginx_configuration.nginx_config_map_name }}
+      - nginx DaemonSet: nginx-loadbalancer
+      - Path-based routing for: {{ service_path_mapping.keys() | list | join(', ') }}
+      - Health check endpoint: /health
+      
+      Next Steps:
+      - Proceed to Task 6: Create NodePort Service for nginx
+      - nginx pods ready to receive traffic from ALB
+  tags: [loadbalancer, nginx, daemonset, deployment]
+
+- name: "Fail if nginx DaemonSet deployment failed"
+  fail:
+    msg: "nginx DaemonSet deployment failed. Check pod status and configuration."
+  when: nginx_config_verification.rc != 0
+  tags: [loadbalancer, nginx, daemonset, deployment]

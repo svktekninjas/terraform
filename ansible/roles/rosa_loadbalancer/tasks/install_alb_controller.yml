@@ -1,0 +1,370 @@
+---
+- name: "Check if AWS Load Balancer Controller namespace exists"
+  shell: |
+    if oc get namespace aws-load-balancer-controller &>/dev/null; then
+      echo "exists"
+    else
+      echo "missing"
+      oc create namespace aws-load-balancer-controller
+    fi
+  register: alb_namespace_check
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Check if AWS Load Balancer Controller deployment exists"
+  shell: |
+    if oc get deployment aws-load-balancer-controller -n aws-load-balancer-controller &>/dev/null; then
+      echo "exists"
+    else
+      echo "missing"
+    fi
+  register: alb_deployment_check
+  tags: [loadbalancer, alb-controller, install]
+
+
+- name: "Install cert-manager for webhook certificates"
+  shell: |
+    kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+  register: cert_manager_result
+  ignore_errors: yes
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Wait for cert-manager deployment to be ready"
+  shell: |
+    echo "Waiting for cert-manager to be ready..."
+    timeout=300
+    while [ $timeout -gt 0 ]; do
+      if oc get deployment cert-manager -n cert-manager &>/dev/null; then
+        if [ "$(oc get deployment cert-manager -n cert-manager -o jsonpath='{.status.readyReplicas}')" = "$(oc get deployment cert-manager -n cert-manager -o jsonpath='{.spec.replicas}')" ]; then
+          echo "cert-manager is ready"
+          break
+        fi
+      fi
+      sleep 5
+      timeout=$((timeout - 5))
+    done
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Download AWS Load Balancer Controller IAM policy"
+  get_url:
+    url: "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/{{ alb_controller_version }}/docs/install/iam_policy.json"
+    dest: "/tmp/iam_policy.json"
+    mode: '0644'
+  delegate_to: localhost
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create IAM policy for AWS Load Balancer Controller"
+  shell: |
+    aws iam create-policy \
+      --policy-name {{ iam_policy_name }} \
+      --policy-document file:///tmp/iam_policy.json
+  delegate_to: localhost
+  ignore_errors: yes
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+
+- name: "Create IAM trust policy for ALB Controller"
+  shell: |
+    cat > /tmp/alb_trust_policy.json <<EOF
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": "arn:aws:iam::{{ aws_account_id }}:oidc-provider/{{ oidc_issuer_url | replace('https://','') }}"
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "{{ oidc_issuer_url | replace('https://','') }}:sub": "system:serviceaccount:aws-load-balancer-controller:{{ controller_service_account }}",
+              "{{ oidc_issuer_url | replace('https://','') }}:aud": "openshift"
+            }
+          }
+        }
+      ]
+    }
+    EOF
+  delegate_to: localhost
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create IAM role for AWS Load Balancer Controller"
+  shell: |
+    aws iam create-role \
+      --role-name AmazonEKSLoadBalancerControllerRole \
+      --assume-role-policy-document file:///tmp/alb_trust_policy.json \
+      --description "IAM role for AWS Load Balancer Controller in ROSA"
+  delegate_to: localhost
+  ignore_errors: yes
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Attach ALB Controller policy to IAM role"
+  shell: |
+    aws iam attach-role-policy \
+      --role-name AmazonEKSLoadBalancerControllerRole \
+      --policy-arn arn:aws:iam::{{ aws_account_id }}:policy/{{ iam_policy_name }}
+  delegate_to: localhost
+  ignore_errors: yes
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create ClusterRole for AWS Load Balancer Controller"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: aws-load-balancer-controller
+    rules:
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["create", "get", "list", "patch", "update", "watch"]
+    - apiGroups: [""]
+      resources: ["endpoints"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["create", "patch"]
+    - apiGroups: [""]
+      resources: ["namespaces"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["get", "list", "watch", "update", "patch"]
+    - apiGroups: [""]
+      resources: ["services/status"]
+      verbs: ["update", "patch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list", "watch", "update", "patch"]
+    - apiGroups: ["extensions", "networking.k8s.io"]
+      resources: ["ingresses/status"]
+      verbs: ["update", "patch"]
+    - apiGroups: ["networking.k8s.io"]
+      resources: ["ingressclasses"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["elbv2.k8s.aws"]
+      resources: ["targetgroupbindings"]
+      verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+    - apiGroups: ["elbv2.k8s.aws"]
+      resources: ["targetgroupbindings/status"]
+      verbs: ["patch", "update"]
+    - apiGroups: ["coordination.k8s.io"]
+      resources: ["leases"]
+      verbs: ["create", "get", "list", "patch", "update", "watch"]
+    EOF
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create service account for AWS Load Balancer Controller"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: {{ controller_service_account }}
+      namespace: aws-load-balancer-controller
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::{{ aws_account_id }}:role/AmazonEKSLoadBalancerControllerRole"
+    EOF
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create ClusterRoleBinding for AWS Load Balancer Controller"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: aws-load-balancer-controller
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: aws-load-balancer-controller
+    subjects:
+    - kind: ServiceAccount
+      name: {{ controller_service_account }}
+      namespace: aws-load-balancer-controller
+    EOF
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create self-signed issuer for webhook certificates"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Issuer
+      metadata:
+        name: aws-load-balancer-controller-selfsigned-issuer
+        namespace: aws-load-balancer-controller
+      spec:
+        selfSigned: {}
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create webhook service for ALB Controller"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: aws-load-balancer-webhook-service
+        namespace: aws-load-balancer-controller
+      spec:
+        ports:
+        - port: 443
+          targetPort: 9443
+        selector:
+          app.kubernetes.io/name: aws-load-balancer-controller
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Create webhook certificate for ALB Controller"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: aws-load-balancer-webhook-tls
+        namespace: aws-load-balancer-controller
+      spec:
+        secretName: aws-load-balancer-webhook-tls
+        dnsNames:
+        - aws-load-balancer-webhook-service.aws-load-balancer-controller.svc
+        - aws-load-balancer-webhook-service.aws-load-balancer-controller.svc.cluster.local
+        issuerRef:
+          name: aws-load-balancer-controller-selfsigned-issuer
+          kind: Issuer
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Deploy AWS Load Balancer Controller"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: aws-load-balancer-controller
+      namespace: aws-load-balancer-controller
+      labels:
+        app.kubernetes.io/name: aws-load-balancer-controller
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/part-of: aws-load-balancer-controller
+    spec:
+      replicas: 2
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: aws-load-balancer-controller
+          app.kubernetes.io/component: controller
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: aws-load-balancer-controller
+            app.kubernetes.io/component: controller
+        spec:
+          serviceAccountName: {{ controller_service_account }}
+          securityContext:
+            runAsNonRoot: true
+          containers:
+          - name: controller
+            image: public.ecr.aws/eks/aws-load-balancer-controller:v2.7.2
+            args:
+            - --cluster-name=svktek-clstr-dev
+            - --ingress-class=alb
+            - --aws-region={{ aws_region }}
+            - --aws-vpc-id={{ vpc_id }}
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                - ALL
+            ports:
+            - containerPort: 8080
+              name: metrics-server
+              protocol: TCP
+            livenessProbe:
+              failureThreshold: 2
+              httpGet:
+                path: /healthz
+                port: 61779
+                scheme: HTTP
+              initialDelaySeconds: 30
+              timeoutSeconds: 10
+            readinessProbe:
+              failureThreshold: 2
+              httpGet:
+                path: /readyz
+                port: 61779
+                scheme: HTTP
+              initialDelaySeconds: 10
+              timeoutSeconds: 10
+            resources:
+              limits:
+                cpu: 200m
+                memory: 500Mi
+              requests:
+                cpu: 100m
+                memory: 200Mi
+            volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+          volumes:
+          - name: webhook-certs
+            secret:
+              secretName: aws-load-balancer-webhook-tls
+          terminationGracePeriodSeconds: 10
+    EOF
+  when: alb_deployment_check.stdout == "missing"
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Wait for AWS Load Balancer Controller deployment to be ready"
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: aws-load-balancer-controller
+    namespace: aws-load-balancer-controller
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Verify AWS Load Balancer Controller installation"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: aws-load-balancer-controller
+    label_selectors:
+      - app.kubernetes.io/name=aws-load-balancer-controller
+  register: alb_pods
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Display AWS Load Balancer Controller status"
+  debug:
+    msg: |
+      AWS Load Balancer Controller Status:
+      - Environment: {{ environment_name }}
+      - Cluster: {{ cluster_name_prefix }}-{{ environment_name }}
+      - Namespace: {{ alb_namespace.resources[0].metadata.name if alb_namespace.resources else 'aws-load-balancer-controller' }}
+      - Deployment: {{ 'Ready' if alb_deployment.resources else 'Installed' }}
+      - Running Pods: {{ alb_pods.resources | length }}
+      - VPC ID: {{ vpc_id }}
+      - AWS Account: {{ aws_account_id }}
+  tags: [loadbalancer, alb-controller, install]
+
+- name: "Fail if AWS Load Balancer Controller is not ready"
+  fail:
+    msg: "AWS Load Balancer Controller installation failed or pods are not running"
+  when: alb_pods.resources | length == 0
+  tags: [loadbalancer, alb-controller, install]

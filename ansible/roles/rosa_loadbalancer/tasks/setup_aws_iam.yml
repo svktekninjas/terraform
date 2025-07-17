@@ -1,0 +1,220 @@
+---
+- name: "Download AWS Load Balancer Controller IAM policy"
+  get_url:
+    url: "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/{{ alb_controller_version }}/docs/install/iam_policy.json"
+    dest: "/tmp/iam_policy.json"
+    mode: '0644'
+  delegate_to: localhost
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Create IAM policy for AWS Load Balancer Controller"
+  shell: |
+    aws iam create-policy \
+      --policy-name {{ iam_policy_name }} \
+      --policy-document file:///tmp/iam_policy.json \
+      --description "IAM policy for AWS Load Balancer Controller in ROSA cluster"
+  delegate_to: localhost
+  ignore_errors: yes
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Create IAM trust policy for Nginx Load Balancer"
+  shell: |
+    cat > /tmp/nginx_trust_policy.json <<EOF
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": "arn:aws:iam::{{ aws_account_id }}:oidc-provider/{{ oidc_issuer_url | replace('https://','') }}"
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "{{ oidc_issuer_url | replace('https://','') }}:sub": "system:serviceaccount:{{ nginx_configuration.nginx_namespace }}:{{ nginx_configuration.nginx_service_account }}",
+              "{{ oidc_issuer_url | replace('https://','') }}:aud": "openshift"
+            }
+          }
+        }
+      ]
+    }
+    EOF
+  delegate_to: localhost
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Create IAM role for Nginx Load Balancer"
+  shell: |
+    aws iam create-role \
+      --role-name {{ nginx_configuration.nginx_iam_role_name }} \
+      --assume-role-policy-document file:///tmp/nginx_trust_policy.json \
+      --description "IAM role for Nginx Load Balancer in ROSA cluster"
+  delegate_to: localhost
+  ignore_errors: yes
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Attach Load Balancer Controller policy to Nginx IAM role"
+  shell: |
+    aws iam attach-role-policy \
+      --role-name {{ nginx_configuration.nginx_iam_role_name }} \
+      --policy-arn arn:aws:iam::{{ aws_account_id }}:policy/{{ iam_policy_name }}
+  delegate_to: localhost
+  ignore_errors: yes
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Create additional IAM policy for NLB management"
+  shell: |
+    cat > /tmp/nlb_policy.json <<EOF
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Action": [
+            "elasticloadbalancing:CreateLoadBalancer",
+            "elasticloadbalancing:DeleteLoadBalancer",
+            "elasticloadbalancing:DescribeLoadBalancers",
+            "elasticloadbalancing:DescribeLoadBalancerAttributes",
+            "elasticloadbalancing:ModifyLoadBalancerAttributes",
+            "elasticloadbalancing:CreateTargetGroup",
+            "elasticloadbalancing:DeleteTargetGroup",
+            "elasticloadbalancing:DescribeTargetGroups",
+            "elasticloadbalancing:DescribeTargetGroupAttributes",
+            "elasticloadbalancing:ModifyTargetGroupAttributes",
+            "elasticloadbalancing:CreateListener",
+            "elasticloadbalancing:DeleteListener",
+            "elasticloadbalancing:DescribeListeners",
+            "elasticloadbalancing:RegisterTargets",
+            "elasticloadbalancing:DeregisterTargets",
+            "elasticloadbalancing:DescribeTargetHealth",
+            "elasticloadbalancing:AddTags",
+            "elasticloadbalancing:RemoveTags",
+            "elasticloadbalancing:DescribeTags"
+          ],
+          "Resource": "*"
+        },
+        {
+          "Effect": "Allow",
+          "Action": [
+            "ec2:DescribeInstances",
+            "ec2:DescribeSecurityGroups",
+            "ec2:DescribeSubnets",
+            "ec2:DescribeVpcs",
+            "ec2:CreateSecurityGroup",
+            "ec2:DeleteSecurityGroup",
+            "ec2:AuthorizeSecurityGroupIngress",
+            "ec2:RevokeSecurityGroupIngress",
+            "ec2:CreateTags",
+            "ec2:DeleteTags",
+            "ec2:DescribeTags"
+          ],
+          "Resource": "*"
+        }
+      ]
+    }
+    EOF
+    
+    aws iam create-policy \
+      --policy-name {{ nginx_configuration.nginx_nlb_policy_name }} \
+      --policy-document file:///tmp/nlb_policy.json \
+      --description "IAM policy for NLB management by Nginx Load Balancer"
+  delegate_to: localhost
+  ignore_errors: yes
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Attach NLB policy to Nginx IAM role"
+  shell: |
+    aws iam attach-role-policy \
+      --role-name {{ nginx_configuration.nginx_iam_role_name }} \
+      --policy-arn arn:aws:iam::{{ aws_account_id }}:policy/{{ nginx_configuration.nginx_nlb_policy_name }}
+  delegate_to: localhost
+  ignore_errors: yes
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Verify IAM role creation"
+  shell: |
+    echo "=== Verifying IAM Role Setup ==="
+    echo "Role Name: {{ nginx_configuration.nginx_iam_role_name }}"
+    echo "Account ID: {{ aws_account_id }}"
+    echo "OIDC Issuer: {{ oidc_issuer_url }}"
+    echo ""
+    
+    # Check if role exists
+    if aws iam get-role --role-name {{ nginx_configuration.nginx_iam_role_name }} &>/dev/null; then
+      echo "✓ IAM Role exists"
+      
+      # Check attached policies
+      echo "Attached policies:"
+      aws iam list-attached-role-policies --role-name {{ nginx_configuration.nginx_iam_role_name }} --query 'AttachedPolicies[*].PolicyName' --output text
+      
+      # Check trust policy
+      echo ""
+      echo "Trust policy:"
+      aws iam get-role --role-name {{ nginx_configuration.nginx_iam_role_name }} --query 'Role.AssumeRolePolicyDocument'
+      
+    else
+      echo "✗ IAM Role not found"
+      exit 1
+    fi
+  delegate_to: localhost
+  register: iam_verification
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Display IAM setup results"
+  debug:
+    msg: "{{ iam_verification.stdout }}"
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Create IAM setup summary"
+  shell: |
+    timestamp=$(date +%s)
+    summary_file="/tmp/iam_setup_summary_$timestamp.txt"
+    
+    echo "=== AWS IAM Setup Summary ===" > $summary_file
+    echo "Date: $(date)" >> $summary_file
+    echo "Environment: {{ target_environment | default('dev') }}" >> $summary_file
+    echo "Cluster: {{ cluster_name }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "IAM Configuration:" >> $summary_file
+    echo "- Role Name: {{ nginx_configuration.nginx_iam_role_name }}" >> $summary_file
+    echo "- Service Account: {{ nginx_configuration.nginx_service_account }}" >> $summary_file
+    echo "- Namespace: {{ nginx_configuration.nginx_namespace }}" >> $summary_file
+    echo "- AWS Account: {{ aws_account_id }}" >> $summary_file
+    echo "- OIDC Issuer: {{ oidc_issuer_url }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Policies Created:" >> $summary_file
+    echo "- {{ iam_policy_name }}" >> $summary_file
+    echo "- {{ nginx_configuration.nginx_nlb_policy_name }}" >> $summary_file
+    echo "" >> $summary_file
+    echo "Verification Results:" >> $summary_file
+    echo "{{ iam_verification.stdout }}" >> $summary_file
+    
+    echo "Summary saved to: $summary_file"
+    echo ""
+    echo "=== Summary Contents ==="
+    cat $summary_file
+  register: iam_summary
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Task 2 completion status"
+  debug:
+    msg: |
+      Task 2 - AWS IAM Setup Complete
+      
+      Status: {{ 'SUCCESS' if iam_verification.rc == 0 else 'FAILED' }}
+      
+      Components Created:
+      - IAM Role: {{ nginx_configuration.nginx_iam_role_name }}
+      - Load Balancer Controller Policy: {{ iam_policy_name }}
+      - NLB Management Policy: {{ nginx_configuration.nginx_nlb_policy_name }}
+      - OIDC Trust Policy for service account authentication
+      
+      Next Steps:
+      - Proceed to Task 3: OpenShift RBAC and SCC Setup
+      - Verify role permissions before Nginx deployment
+  tags: [loadbalancer, iam, aws-setup]
+
+- name: "Fail if IAM setup incomplete"
+  fail:
+    msg: "AWS IAM setup failed. Check role creation and policy attachment."
+  when: iam_verification.rc != 0
+  tags: [loadbalancer, iam, aws-setup]
