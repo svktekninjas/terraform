@@ -1,0 +1,36 @@
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  creationTimestamp: "2025-07-18T08:59:49Z"
+  labels:
+    app: prometheus
+    environment: dev
+  name: prometheus-new
+  namespace: monitoring
+  resourceVersion: "4190935"
+  uid: 32074519-783e-4c8b-b51b-4c6fe5f4b519
+spec:
+  host: prometheus.probuddy.us
+  port:
+    targetPort: 9090
+  tls:
+    termination: edge
+  to:
+    kind: Service
+    name: prometheus
+    weight: 100
+  wildcardPolicy: None
+status:
+  ingress:
+  - conditions:
+    - lastTransitionTime: "2025-07-18T10:18:17Z"
+      status: "True"
+      type: Admitted
+    host: prometheus.probuddy.us
+    routerCanonicalHostname: router-default.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com
+    routerName: default
+    wildcardPolicy: None
