@@ -34,9 +34,8 @@ cloudwatch_log_group: "{{ cloudwatch_log_group if cloudwatch_log_group is define
 cloudwatch_region: "{{ aws_region | default('us-east-1') }}"
 cloudwatch_log_retention: "{{ cloudwatch_log_retention_days if cloudwatch_log_retention_days is defined else 14 }}"
 
-# Log Forwarding Configuration
-log_forwarding_enabled: "{{ log_forwarding.enable_fluent_bit if log_forwarding is defined else true }}"
-fluent_bit_image: "{{ container_images.fluent_bit }}"
+# OpenShift Log Forwarding Configuration
+openshift_log_forwarding_enabled: "{{ openshift_log_forwarding.enable_cluster_logging if openshift_log_forwarding is defined else true }}"
 
 # Alerting Configuration
 alerting_enabled: "{{ alerting_config.enable_alerts if alerting_config is defined else false }}"

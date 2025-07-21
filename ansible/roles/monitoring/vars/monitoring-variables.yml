@@ -192,8 +192,7 @@ dashboard_configs:
 monitoring_endpoints:
   prometheus_port: 9090
   grafana_port: 3000
-  node_exporter_port: 9100
-  alertmanager_port: 9093
+  node_exporter_port: 9101
 
 # Timeout values (in seconds)
 timeout_values:

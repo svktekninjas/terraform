@@ -88,31 +88,6 @@
     - validation
     - grafana
 
-- name: "Check CloudWatch addon status"
-  shell: |
-    rosa list addons --cluster {{ full_cluster_name }} --region {{ cloudwatch_region }} | grep container-insights | awk '{print $3}'
-  register: cloudwatch_addon_status
-  environment:
-    AWS_PROFILE: "{{ aws_profile }}"
-  failed_when: false
-  when: enable_cloudwatch_integration | default(true)
-  tags:
-    - monitoring
-    - validation
-    - cloudwatch
-
-- name: "Validate log forwarding"
-  shell: |
-    oc get pods -n {{ monitoring_namespace }} -l app=fluent-bit --no-headers | wc -l
-  register: fluent_bit_pods
-  environment:
-    AWS_PROFILE: "{{ aws_profile }}"
-  failed_when: false
-  when: log_forwarding_enabled | default(true)
-  tags:
-    - monitoring
-    - validation
-    - log-forwarding
 
 - name: "Get monitoring services status"
   shell: |
@@ -152,12 +127,10 @@
       - "  - Prometheus Pod: {{ prometheus_pod_status.stdout if prometheus_enabled and prometheus_pod_status.stdout else 'Disabled/Error' }}"
       - "  - Grafana Pod: {{ grafana_pod_status.stdout if grafana_enabled and grafana_pod_status.stdout else 'Disabled/Error' }}"
       - "  - Node Exporter: {{ node_exporter_status.stdout if node_exporter_enabled and node_exporter_status.stdout else 'Disabled/Error' }}"
-      - "  - Fluent Bit Pods: {{ fluent_bit_pods.stdout if log_forwarding_enabled and fluent_bit_pods.stdout else 'Disabled/Error' }}"
       - ""
       - "📊 Metrics & Monitoring:"
       - "  - Prometheus Targets: {{ prometheus_targets.stdout if prometheus_enabled and prometheus_targets.stdout else 'N/A' }} targets up"
       - "  - Grafana Health: {{ 'OK' if grafana_enabled and grafana_health.stdout == '200' else 'Error/Disabled' }}"
-      - "  - CloudWatch Addon: {{ cloudwatch_addon_status.stdout if enable_cloudwatch_integration and cloudwatch_addon_status.stdout else 'Disabled/Error' }}"
       - ""
       - "🌐 Network Access:"
       - "  - Services: {{ monitoring_services.stdout_lines | join(', ') if monitoring_services.stdout_lines else 'None found' }}"
@@ -166,13 +139,12 @@
       - "🔍 Health Summary:"
       - "  - Overall Status: {{ 'Healthy' if (namespace_status.stdout == 'Active' and (not prometheus_enabled or prometheus_pod_status.stdout == 'Running') and (not grafana_enabled or grafana_pod_status.stdout == 'Running')) else 'Issues Detected' }}"
       - "  - Monitoring Ready: {{ 'Yes' if (prometheus_targets.stdout|int > 0 if prometheus_targets.stdout else False) or not prometheus_enabled else 'No' }}"
-      - "  - Log Forwarding: {{ 'Active' if (fluent_bit_pods.stdout|int > 0 if fluent_bit_pods.stdout else False) or not log_forwarding_enabled else 'Inactive' }}"
       - ""
       - "📋 Next Steps:"
       - "  1. Access Grafana: oc port-forward svc/grafana 3000:3000 -n {{ monitoring_namespace }}"
       - "  2. Access Prometheus: oc port-forward svc/prometheus 9090:9090 -n {{ monitoring_namespace }}"
-      - "  3. Check CloudWatch Logs: AWS Console > CloudWatch > Log Groups > {{ cloudwatch_log_group }}"
-      - "  4. Monitor cluster: Use Grafana dashboards for real-time monitoring"
+      - "  3. Monitor cluster: Use Grafana dashboards for real-time monitoring"
+      - "  4. View metrics: http://localhost:9090 (Prometheus) and http://localhost:3000 (Grafana)"
   tags:
     - monitoring
     - validation

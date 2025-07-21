@@ -18,13 +18,6 @@
   tags:
     - monitoring
 
-- name: Include CloudWatch Container Insights setup
-  include_tasks: setup_cloudwatch_insights.yml
-  when: enable_cloudwatch_integration | default(true)
-  tags:
-    - monitoring
-    - monitoring-cloudwatch
-    - cloudwatch
 
 - name: Include monitoring namespace creation
   include_tasks: create_monitoring_namespace.yml
@@ -73,13 +66,6 @@
     - monitoring-servicemonitors
     - servicemonitors
 
-- name: Include OpenShift native log forwarding
-  include_tasks: setup_openshift_log_forwarding.yml
-  when: openshift_log_forwarding.enable_cluster_logging | default(true)
-  tags:
-    - monitoring
-    - monitoring-logs
-    - openshift-logging
 
 - name: Include Grafana dashboards setup
   include_tasks: setup_grafana_dashboards.yml
@@ -89,13 +75,6 @@
     - monitoring-dashboards
     - dashboards
 
-- name: Include monitoring services exposure
-  include_tasks: expose_monitoring_services.yml
-  when: expose_grafana | default(true) or expose_prometheus | default(true)
-  tags:
-    - monitoring
-    - monitoring-expose
-    - routes
 
 - name: Include monitoring status validation
   include_tasks: validate_monitoring_setup.yml
