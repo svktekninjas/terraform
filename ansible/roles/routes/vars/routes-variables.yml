@@ -1,0 +1,68 @@
+# Routes Role Variables
+---
+# Supported route types
+supported_route_types:
+  - "grafana"
+  - "prometheus"
+
+# Default route configuration
+default_routes_config:
+  monitoring_namespace: "monitoring"
+  tls:
+    termination: "edge"
+    insecure_edge_termination_policy: "Redirect"
+
+# Domain configuration
+domain_config:
+  base_domain: "probuddy.us"
+  subdomain_pattern: "{{ service_name }}-{{ target_environment }}.{{ domain_config.base_domain }}"
+
+# Service configurations
+service_configs:
+  grafana:
+    service_name: "grafana"
+    target_port: 3000
+    route_name: "grafana-route"
+  prometheus:
+    service_name: "prometheus" 
+    target_port: 9090
+    route_name: "prometheus-route"
+
+# Route metadata
+route_metadata:
+  labels:
+    managed_by: "ansible-routes"
+    component: "monitoring"
+  annotations:
+    haproxy.router.openshift.io/timeout: "30s"
+    haproxy.router.openshift.io/balance: "roundrobin"
+
+# Route specifications
+route_specs:
+  wildcard_policy: "None"
+  weight: 100
+  tls_termination: "edge"
+
+# Validation settings
+validation_config:
+  http_timeout: 10
+  expected_status_codes:
+    - "200"
+    - "301" 
+    - "302"
+    - "401"  # Grafana login page
+  retry_attempts: 3
+  retry_delay: 5
+
+# Environment-specific overrides (will be merged with environment configs)
+environment_overrides:
+  dev:
+    hostname_suffix: "-dev"
+    validation_enabled: true
+  test:
+    hostname_suffix: "-test"
+    validation_enabled: true
+  prod:
+    hostname_suffix: ""
+    validation_enabled: true
+    tls_verification: true

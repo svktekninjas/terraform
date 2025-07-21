@@ -1,0 +1,71 @@
+# Production Environment Routes Configuration
+---
+# Environment settings
+target_environment: "prod"
+environment_name: "Production"
+
+# Routes configuration for prod environment
+routes_config:
+  monitoring_namespace: "monitoring"
+  
+  # Grafana route configuration
+  grafana:
+    hostname: "grafana.probuddy.us"
+    service_name: "grafana"
+    target_port: 3000
+    route_name: "grafana-route"
+    enabled: true
+    
+  # Prometheus route configuration
+  prometheus:
+    hostname: "prometheus.probuddy.us"
+    service_name: "prometheus"
+    target_port: 9090
+    route_name: "prometheus-route"
+    enabled: true
+    
+  # TLS configuration
+  tls:
+    termination: "edge"
+    insecure_edge_termination_policy: "Redirect"
+    certificate_validation: true
+    
+# Production-specific settings
+prod_settings:
+  debug_mode: false
+  verbose_logging: false
+  validation_timeout: 120
+  security_hardening: true
+  
+# Route validation settings for prod
+validation_settings:
+  enabled: true
+  http_timeout: 20
+  retry_attempts: 5
+  expected_status_codes:
+    - 200
+    - 301
+    - 302
+    - 401  # Grafana login page
+  ssl_verification: true
+    
+# AWS Profile (inherited from main config)
+aws_profile: "{{ aws_profile | default('default') }}"
+
+# Resource settings for prod (high)
+resource_settings:
+  route_timeout: "90s"
+  max_connections: 1000
+  keepalive_timeout: "75s"
+  
+# Monitoring integration
+monitoring_integration:
+  enable_route_monitoring: true
+  metrics_collection: true
+  alerting_enabled: true
+  
+# Security settings for production
+security_settings:
+  enable_rate_limiting: true
+  max_requests_per_minute: 1000
+  enable_access_logs: true

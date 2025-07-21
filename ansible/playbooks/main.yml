@@ -19,6 +19,8 @@
       tags: ['cluster', 'rosa-cluster']
     - role: monitoring
       tags: ['monitoring', 'observability']
+    - role: routes
+      tags: ['routes', 'networking', 'ingress']
     - role: rosa_loadbalancer
       tags: ['loadbalancer', 'optimization', 'alb']
   

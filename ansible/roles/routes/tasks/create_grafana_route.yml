@@ -1,0 +1,73 @@
+# Create Grafana route for monitoring namespace
+---
+- name: "Create Grafana route with probuddy.us domain"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: grafana-route
+      namespace: {{ routes_config.monitoring_namespace }}
+      labels:
+        app: grafana
+        environment: {{ target_environment }}
+        managed-by: ansible-routes
+    spec:
+      host: {{ routes_config.grafana.hostname }}
+      port:
+        targetPort: {{ routes_config.grafana.target_port }}
+      tls:
+        termination: {{ routes_config.tls.termination }}
+      to:
+        kind: Service
+        name: {{ routes_config.grafana.service_name }}
+        weight: 100
+      wildcardPolicy: None
+    EOF
+  register: grafana_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-grafana
+    - grafana
+
+- name: "Get Grafana route URL"
+  shell: |
+    oc get route grafana-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: grafana_route_url
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-grafana
+    - grafana
+
+- name: "Verify Grafana route status"
+  shell: |
+    oc get route grafana-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.status.ingress[0].conditions[0].status}' 2>/dev/null || echo "unknown"
+  register: grafana_route_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-grafana
+    - grafana
+
+- name: "Display Grafana route creation results"
+  debug:
+    msg:
+      - "📊 Grafana Route Creation Results:"
+      - "  - Route Creation: {{ 'Success' if grafana_route_result.rc == 0 else 'Failed' }}"
+      - "  - Route URL: {{ grafana_route_url.stdout if grafana_route_url.stdout != 'not-created' else 'Not Available' }}"
+      - "  - Route Status: {{ grafana_route_status.stdout if grafana_route_status.stdout != 'unknown' else 'Unknown' }}"
+      - "  - Full URL: https://{{ grafana_route_url.stdout if grafana_route_url.stdout != 'not-created' else routes_config.grafana.hostname }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.monitoring_namespace }}"
+  tags:
+    - routes
+    - routes-grafana
+    - grafana

@@ -1,0 +1,49 @@
+# Main tasks file for routes role - orchestrates all route creation tasks
+---
+- name: "Load routes variables"
+  include_vars: routes-variables.yml
+  tags:
+    - routes
+    - always
+
+- name: "Load environment-specific routes configuration"
+  include_vars: "{{ ansible_env_path }}/routes-config.yml"
+  tags:
+    - routes
+    - always
+
+- name: "Start ROSA Cluster Routes Setup for {{ target_environment }} environment"
+  debug:
+    msg: "🌐 Starting ROSA Cluster Routes Setup for {{ target_environment }} environment"
+  tags:
+    - routes
+
+- name: Include Grafana route creation
+  include_tasks: create_grafana_route.yml
+  when: grafana_route_enabled | default(true)
+  tags:
+    - routes
+    - routes-grafana
+    - grafana
+
+- name: Include Prometheus route creation
+  include_tasks: create_prometheus_route.yml
+  when: prometheus_route_enabled | default(true)
+  tags:
+    - routes
+    - routes-prometheus
+    - prometheus
+
+- name: Include route validation
+  include_tasks: validate_routes.yml
+  when: validate_routes_enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - validation
+
+- name: "Complete ROSA Cluster Routes Setup for {{ target_environment }} environment"
+  debug:
+    msg: "✅ ROSA Cluster Routes Setup completed successfully for {{ target_environment }} environment!"
+  tags:
+    - routes

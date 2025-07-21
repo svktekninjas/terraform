@@ -1,0 +1,73 @@
+# Create Prometheus route for monitoring namespace
+---
+- name: "Create Prometheus route with probuddy.us domain"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: prometheus-route
+      namespace: {{ routes_config.monitoring_namespace }}
+      labels:
+        app: prometheus
+        environment: {{ target_environment }}
+        managed-by: ansible-routes
+    spec:
+      host: {{ routes_config.prometheus.hostname }}
+      port:
+        targetPort: {{ routes_config.prometheus.target_port }}
+      tls:
+        termination: {{ routes_config.tls.termination }}
+      to:
+        kind: Service
+        name: {{ routes_config.prometheus.service_name }}
+        weight: 100
+      wildcardPolicy: None
+    EOF
+  register: prometheus_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-prometheus
+    - prometheus
+
+- name: "Get Prometheus route URL"
+  shell: |
+    oc get route prometheus-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: prometheus_route_url
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-prometheus
+    - prometheus
+
+- name: "Verify Prometheus route status"
+  shell: |
+    oc get route prometheus-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.status.ingress[0].conditions[0].status}' 2>/dev/null || echo "unknown"
+  register: prometheus_route_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-prometheus
+    - prometheus
+
+- name: "Display Prometheus route creation results"
+  debug:
+    msg:
+      - "🔍 Prometheus Route Creation Results:"
+      - "  - Route Creation: {{ 'Success' if prometheus_route_result.rc == 0 else 'Failed' }}"
+      - "  - Route URL: {{ prometheus_route_url.stdout if prometheus_route_url.stdout != 'not-created' else 'Not Available' }}"
+      - "  - Route Status: {{ prometheus_route_status.stdout if prometheus_route_status.stdout != 'unknown' else 'Unknown' }}"
+      - "  - Full URL: https://{{ prometheus_route_url.stdout if prometheus_route_url.stdout != 'not-created' else routes_config.prometheus.hostname }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.monitoring_namespace }}"
+  tags:
+    - routes
+    - routes-prometheus
+    - prometheus

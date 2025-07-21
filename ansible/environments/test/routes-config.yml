@@ -1,0 +1,60 @@
+# Test Environment Routes Configuration
+---
+# Environment settings
+target_environment: "test"
+environment_name: "Testing"
+
+# Routes configuration for test environment
+routes_config:
+  monitoring_namespace: "monitoring"
+  
+  # Grafana route configuration
+  grafana:
+    hostname: "grafana-test.probuddy.us"
+    service_name: "grafana"
+    target_port: 3000
+    route_name: "grafana-route"
+    enabled: true
+    
+  # Prometheus route configuration
+  prometheus:
+    hostname: "prometheus-test.probuddy.us"
+    service_name: "prometheus"
+    target_port: 9090
+    route_name: "prometheus-route"
+    enabled: true
+    
+  # TLS configuration
+  tls:
+    termination: "edge"
+    insecure_edge_termination_policy: "Redirect"
+    
+# Test-specific settings
+test_settings:
+  debug_mode: false
+  verbose_logging: true
+  validation_timeout: 90
+  
+# Route validation settings for test
+validation_settings:
+  enabled: true
+  http_timeout: 15
+  retry_attempts: 5
+  expected_status_codes:
+    - 200
+    - 301
+    - 302
+    - 401  # Grafana login page
+    
+# AWS Profile (inherited from main config)
+aws_profile: "{{ aws_profile | default('default') }}"
+
+# Resource settings for test (medium)
+resource_settings:
+  route_timeout: "60s"
+  max_connections: 250
+  
+# Monitoring integration
+monitoring_integration:
+  enable_route_monitoring: true
+  metrics_collection: true  # Enabled for testing monitoring capabilities

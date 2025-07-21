@@ -1,0 +1,36 @@
+# Default variables for routes role
+---
+# Environment Configuration
+target_environment: "{{ valid_environments[0] if valid_environments is defined else 'dev' }}"
+ansible_env_path: "{{ playbook_dir }}/../environments/{{ target_environment }}"
+
+# Routes Basic Configuration
+routes_enabled: true
+grafana_route_enabled: true
+prometheus_route_enabled: true
+validate_routes_enabled: true
+
+# TLS Configuration
+tls_termination: "edge"
+tls_insecure_edge_termination_policy: "Redirect"
+
+# Route Timeout Settings
+route_timeout: "30s"
+route_retry_attempts: 3
+
+# Monitoring Integration
+monitoring_namespace: "monitoring"
+
+# Route Labels
+route_labels:
+  managed_by: "ansible-routes"
+  component: "monitoring"
+
+# Operational Settings
+wait_for_routes_ready: true
+routes_ready_timeout: "60s"
+skip_routes_validation: false
+
+# Debug and Development Settings
+debug_mode: "{{ dev_settings.debug_mode if dev_settings is defined else false }}"
+verbose_logging: "{{ dev_settings.verbose_logging if dev_settings is defined else false }}"

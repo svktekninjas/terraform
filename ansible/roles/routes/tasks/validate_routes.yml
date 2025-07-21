@@ -1,0 +1,92 @@
+# Validate routes creation and accessibility
+---
+- name: "Get all routes in monitoring namespace"
+  shell: |
+    oc get routes -n {{ routes_config.monitoring_namespace }} --no-headers | awk '{print $1 ":" $2}' || echo "no-routes"
+  register: all_monitoring_routes
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-validate
+    - validation
+
+- name: "Test Grafana route accessibility"
+  shell: |
+    oc get route grafana-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null | xargs -I {} curl -s -o /dev/null -w "%{http_code}" -k https://{} --connect-timeout 10 || echo "000"
+  register: grafana_route_test
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: grafana_route_enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - grafana
+
+- name: "Test Prometheus route accessibility"
+  shell: |
+    oc get route prometheus-route -n {{ routes_config.monitoring_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null | xargs -I {} curl -s -o /dev/null -w "%{http_code}" -k https://{} --connect-timeout 10 || echo "000"
+  register: prometheus_route_test
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: prometheus_route_enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - prometheus
+
+- name: "Get route ingress status"
+  shell: |
+    echo "=== Grafana Route Status ==="
+    oc get route grafana-route -n {{ routes_config.monitoring_namespace }} -o json 2>/dev/null | jq -r '.status.ingress[0] // "No ingress status"' || echo "Route not found"
+    echo ""
+    echo "=== Prometheus Route Status ==="
+    oc get route prometheus-route -n {{ routes_config.monitoring_namespace }} -o json 2>/dev/null | jq -r '.status.ingress[0] // "No ingress status"' || echo "Route not found"
+  register: routes_ingress_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-validate
+    - validation
+
+- name: "Display comprehensive routes validation results"
+  debug:
+    msg:
+      - "✅ ROSA Routes Validation Report:"
+      - ""
+      - "🌐 Routes Overview:"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.monitoring_namespace }}"
+      - "  - All Routes: {{ all_monitoring_routes.stdout_lines | join(', ') if all_monitoring_routes.stdout != 'no-routes' else 'None found' }}"
+      - ""
+      - "📊 Grafana Route:"
+      - "  - Enabled: {{ grafana_route_enabled | default(true) }}"
+      - "  - URL: https://{{ routes_config.grafana.hostname }}"
+      - "  - HTTP Status: {{ grafana_route_test.stdout if grafana_route_test.stdout is defined else 'Not Tested' }}"
+      - "  - Accessibility: {{ 'OK' if (grafana_route_test.stdout is defined and grafana_route_test.stdout in ['200', '301', '302']) else 'Issues Detected' }}"
+      - ""
+      - "🔍 Prometheus Route:"
+      - "  - Enabled: {{ prometheus_route_enabled | default(true) }}"
+      - "  - URL: https://{{ routes_config.prometheus.hostname }}"
+      - "  - HTTP Status: {{ prometheus_route_test.stdout if prometheus_route_test.stdout is defined else 'Not Tested' }}"
+      - "  - Accessibility: {{ 'OK' if (prometheus_route_test.stdout is defined and prometheus_route_test.stdout in ['200', '301', '302']) else 'Issues Detected' }}"
+      - ""
+      - "🔗 Route53 Integration:"
+      - "  - Grafana DNS: Configure {{ routes_config.grafana.hostname }} -> OpenShift Router IP"
+      - "  - Prometheus DNS: Configure {{ routes_config.prometheus.hostname }} -> OpenShift Router IP"
+      - "  - Router: {{ routes_ingress_status.stdout | regex_search('routerCanonicalHostname.*') if routes_ingress_status.stdout is defined else 'Check route status' }}"
+      - ""
+      - "📋 Next Steps:"
+      - "  1. Add DNS records in Route53 pointing to OpenShift router"
+      - "  2. Test external access: https://{{ routes_config.grafana.hostname }}"
+      - "  3. Test external access: https://{{ routes_config.prometheus.hostname }}"
+      - "  4. Verify SSL certificates are working properly"
+  tags:
+    - routes
+    - routes-validate
+    - validation
