@@ -1,0 +1,20 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::606639739464:oidc-provider/oidc.op1.openshiftapps.com/2k0c8r75om1ojie607vf4glkvbd4mo89"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "oidc.op1.openshiftapps.com/2k0c8r75om1ojie607vf4glkvbd4mo89:sub": "system:serviceaccount:cf-dev:ecr-sa"
+                },
+                "ForAnyValue:StringEquals": {
+                    "oidc.op1.openshiftapps.com/2k0c8r75om1ojie607vf4glkvbd4mo89:aud": ["openshift", "sts.amazonaws.com"]
+                }
+            }
+        }
+    ]
+}

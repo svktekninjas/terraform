@@ -1,0 +1,52 @@
+---
+# CF Deployment Configuration for DEV Environment
+
+# Environment configuration
+env: dev
+cf_environment: dev
+cf_namespace: cf-dev
+cf_release_name: cf-microservices-dev
+
+# Helm chart configuration
+helm_chart_path: "{{ playbook_dir }}/helm-charts/cf-microservices"
+values_file: "{{ playbook_dir }}/environments/dev/deployment-values.yaml"
+
+# Service deployment flags for dev (enable all services by default)
+deploy_naming_server_only: false
+deploy_api_gateway_only: false
+deploy_spring_boot_admin_only: false
+deploy_config_service_only: false
+deploy_business_services_only: false
+deploy_frontend_only: false
+
+# Deployment settings for dev
+deployment_timeout: 600
+verify_deployment: true
+show_deployment_status: true
+
+# Resource limits for dev (lighter resources)
+dev_resource_limits:
+  cpu: "500m"
+  memory: "512Mi"
+dev_resource_requests:
+  cpu: "100m"
+  memory: "256Mi"
+
+# Replica counts for dev (minimal replicas)
+replica_config:
+  naming_server: 1
+  api_gateway: 1
+  spring_boot_admin: 1
+  config_service: 1
+  excel_service: 1
+  bench_profile: 1
+  daily_submissions: 1
+  interviews: 1
+  placements: 1
+  frontend: 1
+
+# Dev-specific labels
+environment_labels:
+  environment: dev
+  purpose: development
+  team: consultingfirm

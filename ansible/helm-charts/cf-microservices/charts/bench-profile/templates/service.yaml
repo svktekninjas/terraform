@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bench-profile-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: bench-profile-service
+    version: {{ .Chart.AppVersion }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    app: bench-profile-service

@@ -1,0 +1,75 @@
+---
+# CF Namespace Creation Task
+# Creates namespace based on environment variable (dev/test/prod)
+
+- name: Set namespace based on environment
+  set_fact:
+    cf_namespace: "cf-{{ env }}"
+  when: env is defined
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+
+- name: Display namespace creation information
+  debug:
+    msg:
+      - "Creating namespace for environment: {{ env | default('dev') }}"
+      - "Namespace: {{ cf_namespace }}"
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+
+- name: Create CF namespace
+  kubernetes.core.k8s:
+    name: "{{ cf_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    definition:
+      metadata:
+        name: "{{ cf_namespace }}"
+        labels:
+          name: "{{ cf_namespace }}"
+          environment: "{{ env | default('dev') }}"
+          app.kubernetes.io/name: consultingfirm
+          app.kubernetes.io/component: namespace
+          app.kubernetes.io/managed-by: ansible
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+
+- name: Verify CF namespace exists
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ cf_namespace }}"
+  register: cf_namespace_info
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+    - verify
+
+- name: Display CF namespace status
+  debug:
+    msg: 
+      - "Namespace: {{ cf_namespace }}"
+      - "Environment: {{ env | default('dev') }}"
+      - "Status: {{ cf_namespace_info.resources[0].status.phase if cf_namespace_info.resources else 'Not Found' }}"
+      - "Creation timestamp: {{ cf_namespace_info.resources[0].metadata.creationTimestamp if cf_namespace_info.resources else 'N/A' }}"
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+    - verify
+
+- name: Namespace creation completed
+  debug:
+    msg: "Namespace {{ cf_namespace }} is ready for deployments"
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace

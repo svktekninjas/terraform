@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-boot-admin
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: spring-boot-admin
+    version: {{ .Chart.AppVersion }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: {{ .Values.service.targetPort }}
+    protocol: TCP
+    name: http
+  selector:
+    app: spring-boot-admin

@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecr-sa-binding
+  namespace: cf-dev
+  labels:
+    app.kubernetes.io/component: ecr-token-management
+    app.kubernetes.io/name: consultingfirm
+    environment: dev
+subjects:
+- kind: ServiceAccount
+  name: ecr-sa
+  namespace: cf-dev
+roleRef:
+  kind: Role
+  name: ecr-secret-manager
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,31 @@
+image:
+  repository: placements-service
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+deployment:
+  replicas: 2
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+route:
+  enabled: true
+  host: ""
+  tls:
+    termination: edge
+
+global:
+  namespace: cf-dev
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  imagePullSecrets:
+    - name: ecr-secret

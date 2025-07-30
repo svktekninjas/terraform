@@ -1,0 +1,51 @@
+---
+# CF Deployment Role - Main Orchestrator
+# Orchestrates ECR access setup, namespace creation, and microservices deployment
+
+- name: CF Deployment - Start orchestration
+  debug:
+    msg:
+      - "Starting CF Deployment orchestration"
+      - "Environment: {{ env | default('dev') }}"
+      - "Namespace: {{ cf_namespace }}"
+      - "Release: {{ cf_release_name }}"
+  tags:
+    - cf-deployment
+    - orchestration
+
+# Step 1: Create CF Namespace (Must be first - required for ECR service account)
+- name: Include CF Namespace Creation
+  include_tasks: cf-namespace.yml
+  tags:
+    - cf-deployment
+    - namespace
+    - cf-namespace
+
+# Step 2: ECR Token Management (Optional - continuous refresh when deploy_ecr_token_management is true)
+- name: Include ECR Token Management
+  include_tasks: ecr-token-management.yml
+  when: ecr_token_management_enabled | bool
+  tags:
+    - cf-deployment
+    - ecr-token-management
+    - continuous-auth
+
+# Step 3: Deploy CF Microservices
+- name: Include CF Microservices Deployment
+  include_tasks: cf-microservices.yml
+  tags:
+    - cf-deployment
+    - deployment
+    - microservices
+
+- name: CF Deployment - Orchestration completed
+  debug:
+    msg:
+      - "CF Deployment orchestration completed successfully"
+      - "Environment: {{ env | default('dev') }}"
+      - "Namespace: {{ cf_namespace }}"
+      - "All components deployed and verified"
+  tags:
+    - cf-deployment
+    - orchestration
+    - complete

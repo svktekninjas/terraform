@@ -1,0 +1,62 @@
+---
+# Default variables for CF Deployment Role
+
+# Default environment configuration (can be overridden by environment configs)
+env: dev
+cf_environment: "{{ env | default('dev') }}"
+cf_namespace: "cf-{{ env | default('dev') }}"
+cf_release_name: "cf-microservices-{{ env | default('dev') }}"
+
+# Helm chart configuration
+helm_chart_path: "{{ playbook_dir }}/../helm-charts/cf-microservices"
+values_file: "{{ playbook_dir }}/../environments/{{ cf_environment }}/deployment-values.yaml"
+
+# Service deployment flags
+deploy_naming_server_only: false
+deploy_api_gateway_only: false
+deploy_spring_boot_admin_only: false
+deploy_config_service_only: false
+deploy_business_services_only: false
+deploy_frontend_only: false
+
+# Individual business service deployment flags
+deploy_excel_service_only: false
+deploy_bench_profile_only: false
+deploy_daily_submissions_only: false
+deploy_interviews_only: false
+deploy_placements_only: false
+
+# Deployment timeouts (in seconds)
+helm_timeout: 600
+deployment_wait_timeout: 600
+
+# Verification settings
+verify_deployment: true
+show_deployment_status: true
+
+# ECR Token Management Configuration
+ecr_token_config:
+  deployment_name: "ecr-credentials-sync"
+  service_account_name: "ecr-credentials-sync"
+  rbac_role_name: "ecr-secret-manager"
+  rbac_binding_name: "ecr-credentials-sync-binding"
+  ecr_registry: "818140567777.dkr.ecr.us-east-1.amazonaws.com"
+  aws_region: "us-east-1"
+  iam_role_arn: "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+  secret_name: "ecr-secret"
+  base_image: "your-registry/base-image:latest"
+  app_version: "1.0"
+  timezone: "Asia/Kolkata"
+  refresh_interval_hours: 6
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2G"
+    requests:
+      cpu: "500m"
+      memory: "1G"
+
+# ECR token management control flags
+deploy_ecr_token_management: false
+ecr_token_management_enabled: "{{ deploy_ecr_token_management | default(false) }}"
+

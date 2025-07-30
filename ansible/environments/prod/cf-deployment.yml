@@ -1,0 +1,59 @@
+---
+# CF Deployment Configuration for PROD Environment
+
+# Environment configuration
+env: prod
+cf_environment: prod
+cf_namespace: cf-prod
+cf_release_name: cf-microservices-prod
+
+# Helm chart configuration
+helm_chart_path: "{{ playbook_dir }}/helm-charts/cf-microservices"
+values_file: "{{ playbook_dir }}/environments/prod/deployment-values.yaml"
+
+# Service deployment flags for prod
+deploy_naming_server_only: false
+deploy_api_gateway_only: false
+deploy_spring_boot_admin_only: false
+deploy_config_service_only: false
+deploy_business_services_only: false
+deploy_frontend_only: false
+
+# Deployment settings for prod (higher timeouts for production)
+deployment_timeout: 1200
+verify_deployment: true
+show_deployment_status: true
+
+# Resource limits for prod (production-grade resources)
+prod_resource_limits:
+  cpu: "2000m"
+  memory: "2Gi"
+prod_resource_requests:
+  cpu: "500m"
+  memory: "1Gi"
+
+# Replica counts for prod (high availability)
+replica_config:
+  naming_server: 2
+  api_gateway: 3
+  spring_boot_admin: 2
+  config_service: 2
+  excel_service: 3
+  bench_profile: 3
+  daily_submissions: 3
+  interviews: 3
+  placements: 3
+  frontend: 4
+
+# Prod-specific labels
+environment_labels:
+  environment: prod
+  purpose: production
+  team: consultingfirm
+  criticality: high
+
+# Production-specific settings
+prod_settings:
+  enable_monitoring: true
+  enable_alerting: true
+  backup_required: true

@@ -1,0 +1,419 @@
+---
+# CF Deployment Role - Helm Integration
+# Deploy ConsultingFirm microservices using Helm charts
+
+- name: Deploy CF Microservices using Helm
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ helm_chart_path }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    skip_crds: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+    state: present
+    wait: true
+    wait_timeout: 600s
+    force: true
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-deploy-all
+    - helm-deploy
+
+- name: Verify namespace creation
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ cf_namespace }}"
+  register: namespace_info
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-namespace
+    - verify
+
+- name: Display namespace status
+  debug:
+    msg: "Namespace {{ cf_namespace }} status: {{ namespace_info.resources[0].status.phase if namespace_info.resources else 'Not Found' }}"
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-namespace
+    - verify
+
+- name: Wait for all deployments to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ cf_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ cf_release_name | default('cf-microservices') }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 600
+  register: deployments_status
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-verify
+    - verify
+
+- name: Display deployment status
+  debug:
+    msg: "Found {{ deployments_status.resources | length }} deployments in {{ cf_namespace }} namespace"
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-verify
+    - verify
+
+# Individual service deployment tasks with specific tags
+- name: Deploy Naming Server only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      namingServer:
+        enabled: true
+      apiGateway:
+        enabled: false
+      springBootAdmin:
+        enabled: false
+      configService:
+        enabled: false
+      excelService:
+        enabled: false
+      benchProfile:
+        enabled: false
+      dailySubmissions:
+        enabled: false
+      interviews:
+        enabled: false
+      placements:
+        enabled: false
+      frontend:
+        enabled: false
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_naming_server_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-naming-server
+    - naming-server
+
+- name: Deploy API Gateway only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      namingServer:
+        enabled: false
+      apiGateway:
+        enabled: true
+      springBootAdmin:
+        enabled: false
+      configService:
+        enabled: false
+      excelService:
+        enabled: false
+      benchProfile:
+        enabled: false
+      dailySubmissions:
+        enabled: false
+      interviews:
+        enabled: false
+      placements:
+        enabled: false
+      frontend:
+        enabled: false
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_api_gateway_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-api-gateway
+    - api-gateway
+
+- name: Deploy Spring Boot Admin only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      namingServer:
+        enabled: false
+      apiGateway:
+        enabled: false
+      springBootAdmin:
+        enabled: true
+      configService:
+        enabled: false
+      excelService:
+        enabled: false
+      benchProfile:
+        enabled: false
+      dailySubmissions:
+        enabled: false
+      interviews:
+        enabled: false
+      placements:
+        enabled: false
+      frontend:
+        enabled: false
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_spring_boot_admin_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-spring-boot-admin
+    - spring-boot-admin
+
+- name: Deploy Config Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      namingServer:
+        enabled: false
+      apiGateway:
+        enabled: false
+      springBootAdmin:
+        enabled: false
+      configService:
+        enabled: true
+      excelService:
+        enabled: false
+      benchProfile:
+        enabled: false
+      dailySubmissions:
+        enabled: false
+      interviews:
+        enabled: false
+      placements:
+        enabled: false
+      frontend:
+        enabled: false
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_config_service_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-config-service
+    - config-service
+
+- name: Deploy Business Services only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      namingServer:
+        enabled: false
+      apiGateway:
+        enabled: false
+      springBootAdmin:
+        enabled: false
+      configService:
+        enabled: false
+      excelService:
+        enabled: true
+      benchProfile:
+        enabled: true
+      dailySubmissions:
+        enabled: true
+      interviews:
+        enabled: true
+      placements:
+        enabled: true
+      frontend:
+        enabled: false
+    state: present
+    wait: true
+    wait_timeout: 600s
+  when: deploy_business_services_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-business-services
+    - business-services
+
+# Individual Business Service Deployments
+- name: Deploy Excel Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      excelService:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_excel_service_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-excel-service
+    - excel-service
+
+- name: Deploy Bench Profile Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      benchProfile:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_bench_profile_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-bench-profile
+    - bench-profile
+
+- name: Deploy Daily Submissions Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      dailySubmissions:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_daily_submissions_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-daily-submissions
+    - daily-submissions
+
+- name: Deploy Interviews Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      interviews:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_interviews_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-interviews
+    - interviews
+
+- name: Deploy Placements Service only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      placements:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_placements_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-placements
+    - placements
+
+- name: Deploy Frontend only
+  kubernetes.core.helm:
+    name: "{{ cf_release_name | default('cf-microservices') }}"
+    chart_ref: "{{ chart_path | default(playbook_dir + '/../helm-charts/cf-microservices') }}"
+    release_namespace: "{{ cf_namespace }}"
+    create_namespace: false
+    values_files:
+      - "{{ values_file }}"
+    values:
+      global:
+        namespace: "{{ cf_namespace }}"
+      frontend:
+        enabled: true
+    state: present
+    wait: true
+    wait_timeout: 300s
+  when: deploy_frontend_only | default(false)
+  tags:
+    - cf-deployment
+    - deployment
+    - cf-frontend
+    - frontend

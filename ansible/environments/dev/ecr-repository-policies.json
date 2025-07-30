@@ -1,0 +1,155 @@
+{
+  "naming-server-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "spring-boot-admin": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "spring_cloud_config": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "common-excel-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "bench-profiles-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "daily-submissions-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "interviews-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "placements-service": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  },
+  "frontend": {
+    "Version": "2008-10-17",
+    "Statement": [
+      {
+        "Sid": "AllowCrossAccountPull",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+        },
+        "Action": [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+      }
+    ]
+  }
+}

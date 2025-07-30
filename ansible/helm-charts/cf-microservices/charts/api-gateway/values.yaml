@@ -1,0 +1,34 @@
+image:
+  repository: api-gateway-service
+  tag: latest
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 8765
+  targetPort: 8765
+
+deployment:
+  replicas: 2
+  env:
+    - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_SERVICE_BASE_URL
+      value: http://apigateway-app:8765
+    - name: SPRING_BOOT_ADMIN_CLIENT_URL
+      value: http://spring-boot-admin:8082
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+route:
+  enabled: true
+  host: ""
+  tls:
+    termination: edge
+
+global:
+  namespace: cf-dev
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm

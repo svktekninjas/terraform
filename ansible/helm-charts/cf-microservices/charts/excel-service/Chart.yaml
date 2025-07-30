@@ -1,0 +1,10 @@
+apiVersion: v2
+name: excel-service
+description: Common Excel Processing Service Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - excel
+  - processing
+  - common-service

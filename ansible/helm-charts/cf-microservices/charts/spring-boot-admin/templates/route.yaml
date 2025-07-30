@@ -1,0 +1,23 @@
+{{- if .Values.route.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: spring-boot-admin
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: spring-boot-admin
+    version: {{ .Chart.AppVersion }}
+spec:
+  {{- if .Values.route.host }}
+  host: {{ .Values.route.host }}
+  {{- end }}
+  to:
+    kind: Service
+    name: spring-boot-admin
+  port:
+    targetPort: http
+  {{- if .Values.route.tls }}
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+  {{- end }}
+{{- end }}

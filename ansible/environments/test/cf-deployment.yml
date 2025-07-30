@@ -1,0 +1,52 @@
+---
+# CF Deployment Configuration for TEST Environment
+
+# Environment configuration
+env: test
+cf_environment: test
+cf_namespace: cf-test
+cf_release_name: cf-microservices-test
+
+# Helm chart configuration
+helm_chart_path: "{{ playbook_dir }}/helm-charts/cf-microservices"
+values_file: "{{ playbook_dir }}/environments/test/deployment-values.yaml"
+
+# Service deployment flags for test
+deploy_naming_server_only: false
+deploy_api_gateway_only: false
+deploy_spring_boot_admin_only: false
+deploy_config_service_only: false
+deploy_business_services_only: false
+deploy_frontend_only: false
+
+# Deployment settings for test
+deployment_timeout: 800
+verify_deployment: true
+show_deployment_status: true
+
+# Resource limits for test (moderate resources)
+test_resource_limits:
+  cpu: "1000m"
+  memory: "1Gi"
+test_resource_requests:
+  cpu: "200m"
+  memory: "512Mi"
+
+# Replica counts for test (moderate replicas for load testing)
+replica_config:
+  naming_server: 1
+  api_gateway: 2
+  spring_boot_admin: 1
+  config_service: 1
+  excel_service: 2
+  bench_profile: 2
+  daily_submissions: 2
+  interviews: 2
+  placements: 2
+  frontend: 2
+
+# Test-specific labels
+environment_labels:
+  environment: test
+  purpose: testing
+  team: consultingfirm

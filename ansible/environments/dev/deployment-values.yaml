@@ -1,0 +1,105 @@
+# Development Environment Values
+global:
+  namespace: cf-dev
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  pullPolicy: Always
+
+# Service configurations for DEV environment
+namingServer:
+  enabled: true
+  replicas: 1
+
+apiGateway:
+  enabled: true
+  replicas: 1
+
+springBootAdmin:
+  enabled: true
+  replicas: 1
+
+configService:
+  enabled: true
+  replicas: 1
+
+excelService:
+  enabled: true
+  replicas: 1
+
+benchProfile:
+  enabled: true
+  replicas: 1
+
+dailySubmissions:
+  enabled: true
+  replicas: 1
+
+interviews:
+  enabled: true
+  replicas: 1
+
+placements:
+  enabled: true
+  replicas: 1
+
+frontend:
+  enabled: true
+  replicas: 1
+
+# Service-specific overrides for development
+naming-server:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+api-gateway:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+spring-boot-admin:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+# ECR Token Management Configuration for Dev Environment
+ecr_token_config:
+  deployment_name: "ecr-credentials-sync"
+  service_account_name: "ecr-credentials-sync"
+  rbac_role_name: "ecr-secret-manager"
+  rbac_binding_name: "ecr-credentials-sync-binding"
+  ecr_registry: "818140567777.dkr.ecr.us-east-1.amazonaws.com"
+  aws_region: "us-east-1"
+  iam_role_arn: "arn:aws:iam::606639739464:role/ROSAECRAssumeRole"
+  secret_name: "ecr-secret"
+  base_image: "amazon/aws-cli:latest"
+  app_version: "1.0"
+  timezone: "America/New_York"  # Dev team timezone
+  refresh_interval_hours: 6
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2G"
+    requests:
+      cpu: "500m"
+      memory: "1G"
+
+# ECR token management control (can be overridden via command line)
+deploy_ecr_token_management: false

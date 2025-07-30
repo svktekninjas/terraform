@@ -1,0 +1,99 @@
+# Test Environment Values
+global:
+  namespace: cf-test
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  pullPolicy: Always
+  imagePullSecrets:
+    - name: ecr-secret
+
+# Docker registry secret
+dockerSecret:
+  enabled: true
+  name: ecr-secret
+  dockerconfigjson: ""  # To be populated by CI/CD or Ansible
+
+# Service configurations for TEST environment
+namingServer:
+  enabled: true
+
+apiGateway:
+  enabled: true
+
+springBootAdmin:
+  enabled: true
+
+configService:
+  enabled: true
+
+excelService:
+  enabled: true
+
+benchProfile:
+  enabled: true
+
+dailySubmissions:
+  enabled: true
+
+interviews:
+  enabled: true
+
+placements:
+  enabled: true
+
+frontend:
+  enabled: true
+
+# Service-specific overrides for test
+naming-server:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 750m
+        memory: 768Mi
+      requests:
+        cpu: 300m
+        memory: 384Mi
+
+api-gateway:
+  deployment:
+    replicas: 2
+    resources:
+      limits:
+        cpu: 750m
+        memory: 768Mi
+      requests:
+        cpu: 300m
+        memory: 384Mi
+
+spring-boot-admin:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+# Business services with higher resources for testing
+bench-profile:
+  deployment:
+    replicas: 2
+
+daily-submissions:
+  deployment:
+    replicas: 2
+
+interviews:
+  deployment:
+    replicas: 2
+
+placements:
+  deployment:
+    replicas: 2
+
+frontend:
+  deployment:
+    replicas: 2

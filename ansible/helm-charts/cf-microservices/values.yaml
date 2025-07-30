@@ -1,0 +1,177 @@
+# Global configuration
+global:
+  namespace: cf-dev
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  pullPolicy: Always
+  serviceAccount: ecr-sa
+  
+  dockerconfigjson: ""
+  imagePullSecrets:
+    - name: regcred 
+
+# Service Account configuration
+serviceAccount:
+  create: false
+  name: ecr-sa
+
+# Service enablement flags
+namingServer:
+  enabled: true
+
+apiGateway:
+  enabled: true
+
+springBootAdmin:
+  enabled: true
+
+configService:
+  enabled: true
+
+excelService:
+  enabled: true
+
+benchProfile:
+  enabled: true
+
+dailySubmissions:
+  enabled: true
+
+interviews:
+  enabled: true
+
+placements:
+  enabled: true
+
+frontend:
+  enabled: true
+
+# Individual service configurations
+naming-server:
+  image:
+    repository: naming-server-service
+    tag: latest
+  service:
+    port: 8761
+  deployment:
+    replicas: 1
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+api-gateway:
+  image:
+    repository: api-gateway-service
+    tag: latest
+  service:
+    port: 8765
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+spring-boot-admin:
+  image:
+    repository: spring-boot-admin
+    tag: latest
+  service:
+    port: 8082
+  deployment:
+    replicas: 1
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+config-service:
+  image:
+    repository: spring_cloud_config
+    tag: latest
+  service:
+    port: 8888
+  deployment:
+    replicas: 1
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+excel-service:
+  image:
+    repository: common-excel-service
+    tag: latest
+  service:
+    port: 8083
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+bench-profile:
+  image:
+    repository: bench-profiles-service
+    tag: latest
+  service:
+    port: 8081
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+daily-submissions:
+  image:
+    repository: daily-submissions-service
+    tag: latest
+  service:
+    port: 8080
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+interviews:
+  image:
+    repository: interviews-service
+    tag: latest
+  service:
+    port: 8080
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+placements:
+  image:
+    repository: placements-service
+    tag: latest
+  service:
+    port: 8080
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge
+
+frontend:
+  image:
+    repository: frontend
+    tag: latest
+  service:
+    port: 80
+  deployment:
+    replicas: 2
+  route:
+    enabled: true
+    tls:
+      termination: edge

@@ -23,6 +23,10 @@
       tags: ['routes', 'networking', 'ingress']
     - role: rosa_loadbalancer
       tags: ['loadbalancer', 'optimization', 'alb']
+    - role: cf-db
+      tags: ['cf-db', 'database', 'aurora', 'postgresql']
+    - role: cf-deployment
+      tags: ['cf-deployment', 'microservices', 'deployment']
   
   post_tasks:
     - name: Display playbook completion

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: spring-boot-admin
+description: Spring Boot Admin Dashboard Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - spring-boot-admin
+  - monitoring
+  - dashboard
