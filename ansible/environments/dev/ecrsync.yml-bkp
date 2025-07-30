@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    app.kubernetes.io/owner: consultingFirm
+    app.kubernetes.io/version: "1.0"
+  labels:
+    app.kubernetes.io/component: apiComponent
+    app.kubernetes.io/instance: apiservice
+    app.kubernetes.io/name: ecr-credentials-sync
+    app.kubernetes.io/version: "1.0"
+  name: ecr-credentials-sync
+  namespace: cf-dev 
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: ecr-credentials-sync
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        app.kubernetes.io/owner: consultingFirm
+        app.kubernetes.io/version: "1.0"
+      labels:
+        app: ecr-credentials-sync
+        app.kubernetes.io/component: apiComponent
+        app.kubernetes.io/instance: apiservice
+        app.kubernetes.io/name: ecr-credentials-sync
+        app.kubernetes.io/version: "1.0"
+    spec:
+      containers:
+      - command:
+        - /bin/sh
+        - -ce
+        - |-
+          # Install required packages
+#          microdnf install -y unzip tar gzip
+          
+          # Create writable AWS config directory
+#          mkdir -p /tmp/.aws
+#          export AWS_CONFIG_FILE=/tmp/.aws/config
+#          export AWS_SHARED_CREDENTIALS_FILE=/tmp/.aws/credentials
+          
+          # Install AWS CLI
+#          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"
+#          unzip /tmp/awscliv2.zip -d /tmp
+#          /tmp/aws/install --bin-dir /tmp/aws-cli --install-dir /tmp/aws-cli
+#          export PATH="/tmp/aws-cli:$PATH"
+          
+          # Install OpenShift CLI
+#          curl -L https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz
+#          tar -xzf /tmp/oc.tar.gz -C /tmp
+#          chmod +x /tmp/oc
+#          export PATH="/tmp:$PATH"
+
+          while true; do
+            CURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")
+            # ECR Initialization
+#            aws ecr get-login-password --region ${REGION} > /token/ecr-token
+
+            # Command for create-secret
+#            oc create secret docker-registry regcred \
+#              --dry-run=client \
+#              --docker-server="818140567777.dkr.ecr.us-east-1.amazonaws.com" \
+#              --docker-username=AWS \
+#              --docker-password="$(cat /token/ecr-token)" \
+#              -o yaml | oc apply -f -
+
+            echo "Successfully Secret Created at [$CURRENT_TIME]"
+
+            # Additional commands for create-secret if needed
+
+            sleep 6h
+          done
+        env:
+        - name: REGION
+          value: us-east-1
+        - name: HOME
+          value: /tmp
+        - name: AWS_CONFIG_FILE
+          value: /tmp/.aws/config
+        - name: AWS_SHARED_CREDENTIALS_FILE
+          value: /tmp/.aws/credentials
+#        image: registry.redhat.io/ubi8/ubi:latest 
+        image: amazon/aws-cli:latest
+        imagePullPolicy: Always
+        name: ecr-sync
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2G
+          requests:
+            cpu: 500m
+            memory: 1G
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /token
+          name: token
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      securityContext: {}
+      serviceAccount: ecr-sa
+      serviceAccountName: ecr-sa
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir:
+          medium: Memory
+        name: token

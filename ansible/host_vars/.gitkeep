@@ -1,0 +1,2 @@
+# Keep this directory for host-specific ansible variables
+# Individual host configurations will be placed here
