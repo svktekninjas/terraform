@@ -1,0 +1,158 @@
+---
+# CF-DB Role Variables
+# These are role-specific variables that typically don't change across environments
+
+# Aurora PostgreSQL Engine Versions
+cf_db_supported_pg_versions:
+  - "15.3"
+  - "14.9"
+  - "13.13"
+  - "12.17"
+
+# Aurora MySQL Engine Versions  
+cf_db_supported_mysql_versions:
+  - "8.0.mysql_aurora.3.04.0"
+  - "5.7.mysql_aurora.2.12.0"
+
+# Instance Classes by Environment
+cf_db_instance_classes:
+  dev:
+    - "db.t3.medium"
+    - "db.t4g.medium"
+  test:
+    - "db.t3.medium"
+    - "db.t4g.medium" 
+    - "db.r6g.large"
+  prod:
+    - "db.r6g.large"
+    - "db.r6g.xlarge"
+    - "db.r6g.2xlarge"
+
+# AWS Regions and their AZ mappings
+cf_db_region_az_mapping:
+  us-east-1:
+    - us-east-1a
+    - us-east-1b
+    - us-east-1c
+    - us-east-1d
+    - us-east-1f
+  us-west-2:
+    - us-west-2a
+    - us-west-2b
+    - us-west-2c
+    - us-west-2d
+  eu-west-1:
+    - eu-west-1a
+    - eu-west-1b
+    - eu-west-1c
+
+# Security Group Port Mappings
+cf_db_port_mappings:
+  postgresql: 5432
+  mysql: 3306
+  aurora-postgresql: 5432
+  aurora-mysql: 3306
+
+# Backup Windows by Region (to avoid peak hours)
+cf_db_backup_windows:
+  us-east-1: "07:00-09:00"
+  us-west-2: "10:00-12:00"
+  eu-west-1: "03:00-05:00"
+
+# Maintenance Windows by Region
+cf_db_maintenance_windows:
+  us-east-1: "sun:05:00-sun:06:00"
+  us-west-2: "sun:08:00-sun:09:00"
+  eu-west-1: "sun:02:00-sun:03:00"
+
+# Environment-specific Backup Retention
+cf_db_backup_retention_by_env:
+  dev: 1
+  test: 7
+  prod: 30
+
+# CIDR Blocks for Cross-VPC Access
+cf_db_vpc_cidrs:
+  current_vpc: "10.0.0.0/16"
+  rosa_cluster_vpc: "172.16.0.0/16"
+  additional_vpc: "192.168.0.0/16"
+  management_vpc: "172.20.0.0/16"
+
+# Aurora Cluster Parameters
+cf_db_cluster_parameters:
+  postgresql:
+    shared_preload_libraries: "pg_stat_statements"
+    log_statement: "all"
+    log_min_duration_statement: 1000
+    max_connections: 100
+  
+# Performance Insights Settings
+cf_db_performance_insights:
+  enabled: true
+  retention_period: 7  # days
+
+# Monitoring and Alerting
+cf_db_monitoring:
+  enhanced_monitoring: true
+  monitoring_interval: 60  # seconds
+  monitoring_role_arn: ""  # to be set during execution
+
+# Encryption Settings
+cf_db_encryption:
+  storage_encrypted: true
+  kms_key_id: "alias/aws/rds"
+
+# Network ACL Rules for Database Subnets
+cf_db_network_acl_rules:
+  inbound:
+    - rule_number: 100
+      protocol: tcp
+      rule_action: allow
+      port_range:
+        from: 5432
+        to: 5432
+      cidr_block: "10.0.0.0/16"
+    - rule_number: 110
+      protocol: tcp
+      rule_action: allow
+      port_range:
+        from: 5432
+        to: 5432
+      cidr_block: "172.16.0.0/16"
+  outbound:
+    - rule_number: 100
+      protocol: -1
+      rule_action: allow
+      cidr_block: "0.0.0.0/0"
+
+# DNS and Service Discovery
+cf_db_dns_config:
+  private_hosted_zone: "cf-internal.com"
+  create_cname_records: true
+  ttl: 300
+
+# VPC Peering Configuration Constants
+cf_db_vpc_peering_config:
+  supported_connection_types:
+    - "cross-account"
+    - "same-account"
+  connection_timeout: 300  # seconds
+  route_propagation_wait: 60  # seconds
+  status_check_retries: 30
+  status_check_delay: 10  # seconds
+  
+# VPC Peering Route Priorities
+cf_db_vpc_peering_routes:
+  priority: 100
+  metric: 100
+  
+# VPC Peering Validation Rules
+cf_db_vpc_peering_validation:
+  max_peering_connections_per_vpc: 50
+  supported_states:
+    - "active"
+    - "pending-acceptance"
+  allowed_cidr_ranges:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"

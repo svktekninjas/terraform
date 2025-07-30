@@ -1,0 +1,83 @@
+---
+# Production Environment Configuration for CF-DB Role
+cf_db_config:
+  region: us-east-1
+  availability_zones:
+    - us-east-1a
+    - us-east-1b
+  
+  # VPC Configuration
+  vpc_id: "{{ vpc_id | default('') }}"
+  public_subnet_id: "{{ public_subnet_id | default('') }}"
+  openshift_sg_id: "{{ openshift_sg_id | default('') }}"
+  
+  # Private Subnets Configuration (2 AZs)
+  private_subnets:
+    - cidr: "10.0.22.0/24"
+      az: "us-east-1a"
+      name: "cf-private-subnet-prod-1a"
+    - cidr: "10.0.23.0/24"
+      az: "us-east-1b"
+      name: "cf-private-subnet-prod-1b"
+  
+  # Route Table Configuration
+  route_table:
+    name: "cf-private-rt-prod"
+  
+  # Security Group Configuration
+  security_group:
+    name: "cf-aurora-db-sg-prod"
+    description: "Aurora DB Security Group for Production - Cross VPC Access"
+    db_port: 5432
+    allowed_cidrs:
+      - "10.0.0.0/16"    # Current VPC CIDR
+      - "172.16.0.0/16"  # ROSA cluster VPC CIDR (example)
+      - "192.168.0.0/16" # Additional VPC CIDR (example)
+    allowed_security_groups:
+      - "{{ openshift_sg_id }}"  # OpenShift security group
+  
+  # Database Configuration
+  database:
+    engine: "aurora-postgresql"
+    engine_version: "15.3"
+    instance_class: "db.r6g.large"
+    cluster_name: "cf-aurora-pg-cluster-prod"
+    database_name: "cfdb_prod"
+    master_username: "cfadmin"
+    master_password: "{{ cf_db_password }}"
+    backup_retention_period: 30
+    preferred_backup_window: "07:00-09:00"
+    publicly_accessible: false
+    deletion_protection: true
+    
+    # Aurora Cluster Instances (2 AZs)
+    instances:
+      - identifier: "cf-aurora-pg-writer-prod"
+        instance_class: "db.r6g.large"
+        az: "us-east-1a"
+      - identifier: "cf-aurora-pg-reader-prod"
+        instance_class: "db.r6g.large"
+        az: "us-east-1b"
+    
+  # DB Subnet Group Configuration
+  db_subnet_group:
+    name: "cf-private-db-subnet-group-prod"
+    description: "Aurora DB subnet group for Production - 2 AZs"
+
+  # VPC Peering Configuration for ROSA Cluster Connectivity
+  vpc_peering:
+    enabled: false  # Disabled until prod ROSA cluster is available
+    connection_name: "cf-aurora-rosa-peering-prod"
+    rosa_vpc_id: "vpc-PROD_CLUSTER_NOT_AVAILABLE"  # Update when prod ROSA cluster is created
+    rosa_route_table_id: "rtb-PROD_CLUSTER_NOT_AVAILABLE"  # Update when prod ROSA cluster is created
+    description: "VPC peering between Aurora DB VPC and ROSA cluster VPC for production environment"
+    auto_accept: true
+
+  # Tagging Strategy
+  common_tags:
+    Environment: "prod"
+    Project: "ConsultingFirm"
+    Component: "Database"
+    ManagedBy: "Ansible"
+    CostCenter: "Engineering"
+    Backup: "Required"

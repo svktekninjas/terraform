@@ -1,0 +1,73 @@
+---
+# Variables for CF Deployment Role
+
+# Environment-specific namespaces
+environment_namespaces:
+  dev: cf-dev
+  test: cf-test
+  prod: cf-prod
+
+# ECR registry configuration
+ecr_registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+
+# Service images mapping
+service_images:
+  naming_server: "{{ ecr_registry }}/naming-server-service:latest"
+  api_gateway: "{{ ecr_registry }}/api-gateway-service:latest"
+  spring_boot_admin: "{{ ecr_registry }}/spring-boot-admin:latest"
+  config_service: "{{ ecr_registry }}/spring_cloud_config:latest"
+  excel_service: "{{ ecr_registry }}/common-excel-service:latest"
+  bench_profile: "{{ ecr_registry }}/bench-profiles-service:latest"
+  daily_submissions: "{{ ecr_registry }}/daily-submissions-service:latest"
+  interviews: "{{ ecr_registry }}/interviews-service:latest"
+  placements: "{{ ecr_registry }}/placements-service:latest"
+  frontend: "{{ ecr_registry }}/frontend:latest"
+
+# Service ports mapping
+service_ports:
+  naming_server: 8761
+  api_gateway: 8765
+  spring_boot_admin: 8082
+  config_service: 8888
+  excel_service: 8083
+  bench_profile: 8081
+  daily_submissions: 8080
+  interviews: 8080
+  placements: 8080
+  frontend: 80
+
+# Environment-specific replica counts
+replica_counts:
+  dev:
+    naming_server: 1
+    api_gateway: 1
+    spring_boot_admin: 1
+    config_service: 1
+    excel_service: 1
+    bench_profile: 1
+    daily_submissions: 1
+    interviews: 1
+    placements: 1
+    frontend: 1
+  test:
+    naming_server: 1
+    api_gateway: 2
+    spring_boot_admin: 1
+    config_service: 1
+    excel_service: 2
+    bench_profile: 2
+    daily_submissions: 2
+    interviews: 2
+    placements: 2
+    frontend: 2
+  prod:
+    naming_server: 2
+    api_gateway: 3
+    spring_boot_admin: 2
+    config_service: 2
+    excel_service: 3
+    bench_profile: 3
+    daily_submissions: 3
+    interviews: 3
+    placements: 3
+    frontend: 4

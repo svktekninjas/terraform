@@ -1,0 +1,214 @@
+---
+# Aurora DB Cluster Creation Tasks
+# Dependencies: Requires private_subnet_ids from private_subnets.yml and aurora_sg from security_groups.yml
+
+- name: Check if private subnet IDs are available
+  set_fact:
+    private_subnet_ids: "{{ private_subnet_ids | default([]) }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Get private subnet IDs if not available (dependency check)
+  amazon.aws.ec2_vpc_subnet_info:
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    filters:
+      "vpc-id": "{{ cf_db_config.vpc_id }}"
+      "tag:Component": "Database"
+      "tag:Environment": "{{ cf_db_config.common_tags.Environment }}"
+  register: existing_private_subnets
+  when: private_subnet_ids | length == 0
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Set private subnet IDs from existing subnets
+  set_fact:
+    private_subnet_ids: "{{ existing_private_subnets.subnets | map(attribute='subnet_id') | list }}"
+  when: private_subnet_ids | length == 0 and existing_private_subnets.subnets is defined
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Check if Aurora security group is available
+  set_fact:
+    aurora_sg: "{{ aurora_sg | default({}) }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Get Aurora security group if not available (dependency check)
+  amazon.aws.ec2_security_group_info:
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    filters:
+      "group-name": "{{ cf_db_config.security_group.name }}"
+      "vpc-id": "{{ cf_db_config.vpc_id }}"
+  register: existing_aurora_sg
+  when: aurora_sg.group_id is not defined
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Set Aurora security group from existing SG
+  set_fact:
+    aurora_sg: "{{ {'group_id': existing_aurora_sg.security_groups[0].group_id} }}"
+  when: aurora_sg.group_id is not defined and existing_aurora_sg.security_groups | length > 0
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Display dependency status
+  debug:
+    msg:
+      - "=== DB Cluster Dependency Status ==="
+      - "Private Subnets: {{ private_subnet_ids | length }} found - {{ private_subnet_ids }}"
+      - "Aurora Security Group: {{ aurora_sg.group_id | default('Not Found') }}"
+      - "Region: {{ cf_db_config.region }}"
+      - "Availability Zones: {{ cf_db_config.availability_zones }}"
+      - "===================================="
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Validate DB cluster dependencies
+  assert:
+    that:
+      - private_subnet_ids is defined
+      - private_subnet_ids | length >= 2
+      - aurora_sg.group_id is defined
+      - aurora_sg.group_id != ""
+    fail_msg: "DB cluster requires private subnets and security groups. Run with tags: private-subnets,security-groups,db-cluster"
+    success_msg: "DB cluster dependencies satisfied."
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Create DB Subnet Group for Aurora (Multi-AZ)
+  amazon.aws.rds_subnet_group:
+    state: present
+    name: "{{ cf_db_config.db_subnet_group.name }}"
+    description: "{{ cf_db_config.db_subnet_group.description }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    subnets: "{{ private_subnet_ids }}"
+    tags:
+      Name: "{{ cf_db_config.db_subnet_group.name }}"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Create Aurora PostgreSQL Cluster
+  amazon.aws.rds_cluster:
+    state: present
+    engine: "{{ cf_db_config.database.engine }}"
+    engine_version: "{{ cf_db_config.database.engine_version }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    cluster_id: "{{ cf_db_config.database.cluster_name }}"
+    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
+    vpc_security_group_ids:
+      - "{{ aurora_sg.group_id }}"
+    database_name: "{{ cf_db_config.database.database_name }}"
+    master_username: "{{ cf_db_config.database.master_username }}"
+    master_user_password: "{{ cf_db_config.database.master_password }}"
+    backup_retention_period: "{{ cf_db_config.database.backup_retention_period }}"
+    preferred_backup_window: "{{ cf_db_config.database.preferred_backup_window }}"
+    preferred_maintenance_window: "{{ cf_db_config.database.preferred_maintenance_window | default('sun:05:00-sun:06:00') }}"
+    deletion_protection: "{{ cf_db_config.database.deletion_protection | default(false) }}"
+    tags:
+      Name: "{{ cf_db_config.database.cluster_name }}"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_cluster
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+
+- name: Create Aurora Cluster Writer Instance
+  amazon.aws.rds_instance:
+    state: present
+    db_instance_identifier: "{{ cf_db_config.database.instances[0].identifier }}"
+    engine: "{{ cf_db_config.database.engine }}"
+    engine_version: "{{ cf_db_config.database.engine_version }}"
+    db_instance_class: "{{ cf_db_config.database.instances[0].instance_class }}"
+    db_cluster_identifier: "{{ aurora_cluster.db_cluster_identifier }}"
+    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    publicly_accessible: "{{ cf_db_config.database.publicly_accessible }}"
+    availability_zone: "{{ cf_db_config.database.instances[0].az }}"
+    tags:
+      Name: "{{ cf_db_config.database.instances[0].identifier }}"
+      Role: "Writer"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_writer
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Create Aurora Cluster Reader Instance
+  amazon.aws.rds_instance:
+    state: present
+    db_instance_identifier: "{{ cf_db_config.database.instances[1].identifier }}"
+    engine: "{{ cf_db_config.database.engine }}"
+    engine_version: "{{ cf_db_config.database.engine_version }}"
+    db_instance_class: "{{ cf_db_config.database.instances[1].instance_class }}"
+    db_cluster_identifier: "{{ aurora_cluster.db_cluster_identifier }}"
+    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    publicly_accessible: "{{ cf_db_config.database.publicly_accessible }}"
+    availability_zone: "{{ cf_db_config.database.instances[1].az }}"
+    tags:
+      Name: "{{ cf_db_config.database.instances[1].identifier }}"
+      Role: "Reader"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_reader
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Display Aurora cluster information
+  debug:
+    msg:
+      - "Aurora cluster created: {{ aurora_cluster.db_cluster_identifier }}"
+      - "Writer endpoint: {{ aurora_cluster.endpoint }}"
+      - "Reader endpoint: {{ aurora_cluster.reader_endpoint }}"
+      - "Writer instance: {{ aurora_writer.db_instance_identifier }} ({{ cf_db_config.database.instances[0].az }})"
+      - "Reader instance: {{ aurora_reader.db_instance_identifier }} ({{ cf_db_config.database.instances[1].az }})"
+      - "Database accessible from cross-VPC ROSA clusters"
+      - "Connection details:"
+      - "  - Database: {{ cf_db_config.database.database_name }}"
+      - "  - Username: {{ cf_db_config.database.master_username }}"
+      - "  - Port: {{ cf_db_config.security_group.db_port }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database

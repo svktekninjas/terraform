@@ -1,0 +1,10 @@
+apiVersion: v2
+name: config-service
+description: Spring Cloud Config Service Helm Chart
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - spring-cloud-config
+  - configuration
+  - config-server

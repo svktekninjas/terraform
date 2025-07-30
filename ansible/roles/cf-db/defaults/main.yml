@@ -1,0 +1,125 @@
+---
+# CF-DB Role Default Variables
+# These are fallback values that can be overridden by environment-specific configs
+
+# Default AWS Configuration
+cf_db_defaults:
+  region: "us-west-1"
+  profile: "svktek"
+  availability_zones:
+    - "us-west-1a"
+    - "us-west-1c"
+
+# Default Environment
+cf_db_environment: "dev"
+
+# Default VPC Configuration (using actual AWS resource IDs)
+cf_db_vpc_defaults:
+  vpc_id: "vpc-0642a6fba47ae2a28"
+  public_subnet_id: "subnet-021b476409dfe66ba"  # Public subnet for NAT Gateway
+  openshift_sg_id: ""  # Optional: OpenShift security group ID (set when available)
+
+# Default Private Subnets Configuration
+cf_db_private_subnets_defaults:
+  - cidr: "10.0.2.0/24"
+    az: "us-east-1a"
+    name: "cf-private-subnet-default-1a"
+  - cidr: "10.0.3.0/24"
+    az: "us-east-1b"
+    name: "cf-private-subnet-default-1b"
+
+# Default Route Table Configuration
+cf_db_route_table_defaults:
+  name: "cf-private-rt-default"
+
+# Default Security Group Configuration
+cf_db_security_group_defaults:
+  name: "cf-aurora-db-sg-default"
+  description: "Aurora DB Security Group - Default"
+  db_port: 5432
+  allowed_cidrs:
+    - "10.0.0.0/16"
+    - "172.16.0.0/16"
+    - "192.168.0.0/16"
+
+# Default Database Configuration
+cf_db_database_defaults:
+  engine: "aurora-postgresql"
+  engine_version: "15.3"
+  instance_class: "db.t3.medium"
+  cluster_name: "cf-aurora-pg-cluster-default"
+  database_name: "cfdb_default"
+  master_username: "cfadmin"
+  master_password: "ChangeMeInProduction!"
+  backup_retention_period: 7
+  preferred_backup_window: "07:00-09:00"
+  preferred_maintenance_window: "sun:05:00-sun:06:00"
+  publicly_accessible: false
+  deletion_protection: false
+  
+  # Default Aurora Instances
+  instances:
+    - identifier: "cf-aurora-pg-writer-default"
+      instance_class: "db.t3.medium"
+      az: "us-east-1a"
+    - identifier: "cf-aurora-pg-reader-default"
+      instance_class: "db.t3.medium"
+      az: "us-east-1b"
+
+# Default DB Subnet Group Configuration
+cf_db_subnet_group_defaults:
+  name: "cf-private-db-subnet-group-default"
+  description: "Aurora DB subnet group - Default"
+
+# Default Tagging Strategy
+cf_db_common_tags_defaults:
+  Environment: "default"
+  Project: "ConsultingFirm"
+  Component: "Database"
+  ManagedBy: "Ansible"
+  CostCenter: "Engineering"
+
+# Timeout and Retry Defaults
+cf_db_timeouts:
+  nat_gateway_timeout: 600  # seconds
+  db_cluster_timeout: 1800  # seconds
+  db_instance_timeout: 1200 # seconds
+
+# Feature Flags
+cf_db_features:
+  enable_cross_vpc_access: true
+  enable_deletion_protection: false
+  enable_backup_retention: true
+  enable_monitoring: true
+
+# Default VPC Peering Configuration
+cf_db_vpc_peering_defaults:
+  enabled: false
+  connection_name: "cf-aurora-rosa-peering-default"
+  rosa_vpc_id: ""  # Must be set in environment config
+  rosa_route_table_id: ""  # Must be set in environment config
+  description: "VPC peering between Aurora DB VPC and ROSA cluster VPC"
+  auto_accept: true
+  tags:
+    Type: "VPCPeering"
+    Purpose: "Database-Connectivity"
+
+# Validation Rules
+cf_db_validation:
+  required_vars:
+    - vpc_id
+    - public_subnet_id
+    - openshift_sg_id
+    - region
+  vpc_peering_required_vars:
+    - rosa_vpc_id
+    - rosa_route_table_id
+  min_backup_retention_days: 1
+  max_backup_retention_days: 35
+  supported_regions:
+    - us-east-1
+    - us-west-2
+    - eu-west-1
+  supported_engines:
+    - aurora-postgresql
+    - aurora-mysql

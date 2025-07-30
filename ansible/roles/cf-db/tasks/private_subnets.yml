@@ -1,0 +1,39 @@
+---
+# Private Subnets Creation Tasks
+- name: Create private subnets in existing VPC (Multi-AZ)
+  amazon.aws.ec2_vpc_subnet:
+    vpc_id: "{{ cf_db_config.vpc_id }}"
+    cidr: "{{ item.cidr }}"
+    az: "{{ item.az }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    map_public: no
+    tags:
+      Name: "{{ item.name }}"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  register: private_subnets_result
+  loop: "{{ cf_db_config.private_subnets }}"
+  tags:
+    - cf-db
+    - private-subnets
+    - networking
+
+- name: Set private subnet IDs fact
+  set_fact:
+    private_subnet_ids: "{{ private_subnets_result.results | map(attribute='subnet.id') | list }}"
+  tags:
+    - cf-db
+    - private-subnets
+    - networking
+
+- name: Display created private subnets
+  debug:
+    msg: "Created private subnet {{ item.subnet.id }} in AZ {{ item.subnet.availability_zone }}"
+  loop: "{{ private_subnets_result.results }}"
+  tags:
+    - cf-db
+    - private-subnets
+    - networking

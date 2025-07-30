@@ -1,0 +1,92 @@
+---
+# Security Groups Creation Tasks
+# Dependencies: Requires VPC to exist
+
+- name: Validate VPC exists for security group creation
+  assert:
+    that:
+      - cf_db_config.vpc_id is defined
+      - cf_db_config.vpc_id != ""
+    fail_msg: "VPC ID is required for security group creation"
+    success_msg: "Security group dependencies validated."
+  tags:
+    - cf-db
+    - security-groups
+    - security
+- name: Create Security Group for Aurora DB (Cross-VPC Access)
+  amazon.aws.ec2_security_group:
+    name: "{{ cf_db_config.security_group.name }}"
+    description: "{{ cf_db_config.security_group.description }}"
+    vpc_id: "{{ cf_db_config.vpc_id }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    rules_egress:
+      - proto: all
+        cidr_ip: 
+          - 0.0.0.0/0
+        rule_desc: "Allow all outbound traffic"
+    rules:
+      # CIDR-based rules for cross-VPC access
+      - proto: tcp
+        from_port: "{{ cf_db_config.security_group.db_port }}"
+        to_port: "{{ cf_db_config.security_group.db_port }}"
+        cidr_ip:
+          - "10.0.0.0/16"
+        rule_desc: "Allow PostgreSQL access from current VPC CIDR"
+      - proto: tcp
+        from_port: "{{ cf_db_config.security_group.db_port }}"
+        to_port: "{{ cf_db_config.security_group.db_port }}"
+        cidr_ip:
+          - "172.16.0.0/16"
+        rule_desc: "Allow PostgreSQL access from ROSA cluster VPC CIDR"
+      - proto: tcp
+        from_port: "{{ cf_db_config.security_group.db_port }}"
+        to_port: "{{ cf_db_config.security_group.db_port }}"
+        cidr_ip:
+          - "192.168.0.0/16"
+        rule_desc: "Allow PostgreSQL access from additional VPC CIDR"
+    tags:
+      Name: "{{ cf_db_config.security_group.name }}"
+      Environment: "{{ cf_db_config.common_tags.Environment }}"
+      Project: "{{ cf_db_config.common_tags.Project }}"
+      Component: "{{ cf_db_config.common_tags.Component }}"
+      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_sg
+  tags:
+    - cf-db
+    - security-groups
+    - security
+
+- name: Add OpenShift security group rule (if available)
+  amazon.aws.ec2_security_group:
+    name: "{{ cf_db_config.security_group.name }}"
+    vpc_id: "{{ cf_db_config.vpc_id }}"
+    region: "{{ cf_db_config.region }}"
+    profile: "{{ cf_db_config.profile }}"
+    rules:
+      - proto: tcp
+        from_port: "{{ cf_db_config.security_group.db_port }}"
+        to_port: "{{ cf_db_config.security_group.db_port }}"
+        group_id:
+          - "{{ cf_db_config.openshift_sg_id }}"
+        rule_desc: "Allow PostgreSQL access from OpenShift security group"
+  when: cf_db_config.openshift_sg_id is defined and cf_db_config.openshift_sg_id != ""
+  tags:
+    - cf-db
+    - security-groups
+    - security
+
+- name: Display Aurora security group information
+  debug:
+    msg:
+      - "Created Aurora DB security group with ID: {{ aurora_sg.group_id }}"
+      - "Security group allows cross-VPC access from:"
+      - "  - Current VPC CIDR: 10.0.0.0/16"
+      - "  - ROSA cluster VPC CIDR: 172.16.0.0/16"
+      - "  - Additional VPC CIDR: 192.168.0.0/16"
+      - "  - OpenShift security group: {{ cf_db_config.openshift_sg_id | default('Not configured (optional)') }}"
+      - "Database will be accessible from ROSA clusters in other VPCs"
+  tags:
+    - cf-db
+    - security-groups
+    - security

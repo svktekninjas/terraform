@@ -1,0 +1,230 @@
+---
+# CF-DB Network Connectivity Task
+# This task creates VPC peering connection between Aurora VPC and ROSA cluster VPC
+# Enables cross-VPC database connectivity for microservices
+# Tags: ansible-playbook -t nw-connectivity (individual task)
+#       ansible-playbook -t cf-db (full role including this task)
+
+- name: Display VPC peering setup summary
+  debug:
+    msg:
+      - "=== VPC Peering Network Connectivity Setup ==="
+      - "Source VPC (Aurora): {{ cf_db_config.vpc_id }}"
+      - "Target VPC (ROSA): {{ cf_db_config.vpc_peering.rosa_vpc_id }}"
+      - "Source VPC CIDR: {{ cf_db_vpc_cidrs.current_vpc }}"
+      - "Target VPC CIDR: {{ cf_db_vpc_cidrs.rosa_cluster_vpc }}"
+      - "Environment: {{ cf_db_config.common_tags.Environment }}"
+      - "=============================================="
+  tags:
+    - always
+    - cf-db
+    - nw-connectivity
+
+- name: Validate VPC peering configuration
+  assert:
+    that:
+      - cf_db_config.vpc_peering.rosa_vpc_id is defined and cf_db_config.vpc_peering.rosa_vpc_id != ""
+      - cf_db_config.vpc_peering.rosa_route_table_id is defined and cf_db_config.vpc_peering.rosa_route_table_id != ""
+      - cf_db_config.vpc_peering.enabled | default(false) == true
+    fail_msg: "VPC peering configuration is incomplete. Please check environment configuration."
+    success_msg: "VPC peering configuration validated successfully."
+  tags:
+    - always
+    - cf-db
+    - nw-connectivity
+    - validation
+
+- name: Create VPC peering connection
+  shell: |
+    aws ec2 create-vpc-peering-connection \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_config.vpc_id }} \
+      --peer-vpc-id {{ cf_db_config.vpc_peering.rosa_vpc_id }} \
+      --peer-region us-east-1 \
+      --tag-specifications 'ResourceType=vpc-peering-connection,Tags=[{Key=Name,Value={{ cf_db_config.vpc_peering.connection_name }}},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}},{Key=Component,Value=NetworkConnectivity},{Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}},{Key=Purpose,Value=Aurora-ROSA-VPC-Peering}]' \
+      --query 'VpcPeeringConnection.VpcPeeringConnectionId' \
+      --output text
+  register: vpc_peering_connection_result
+  tags:
+    - cf-db
+    - nw-connectivity
+    - vpc-peering
+
+- name: Set VPC peering connection ID
+  set_fact:
+    vpc_peering_connection_id: "{{ vpc_peering_connection_result.stdout }}"
+  tags:
+    - cf-db
+    - nw-connectivity
+    - vpc-peering
+
+- name: Accept VPC peering connection
+  shell: |
+    aws ec2 accept-vpc-peering-connection \
+      --region us-east-1 \
+      --vpc-peering-connection-id {{ vpc_peering_connection_id }} \
+      --query 'VpcPeeringConnection.Status.Code' \
+      --output text
+  register: vpc_peering_acceptance
+  tags:
+    - cf-db
+    - nw-connectivity
+    - vpc-peering
+
+- name: Wait for VPC peering connection to be active
+  shell: |
+    aws ec2 describe-vpc-peering-connections \
+      --region {{ cf_db_config.region }} \
+      --vpc-peering-connection-ids {{ vpc_peering_connection_id }} \
+      --query 'VpcPeeringConnections[0].Status.Code' \
+      --output text
+  register: peering_status
+  until: peering_status.stdout == "active"
+  retries: 30
+  delay: 10
+  tags:
+    - cf-db
+    - nw-connectivity
+    - vpc-peering
+
+- name: Get Aurora VPC route table information
+  shell: |
+    aws ec2 describe-route-tables \
+      --region {{ cf_db_config.region }} \
+      --filters "Name=tag:Name,Values={{ cf_db_config.route_table.name }}" "Name=vpc-id,Values={{ cf_db_config.vpc_id }}" \
+      --query 'RouteTables[0].RouteTableId' \
+      --output text
+  register: aurora_route_table_result
+  tags:
+    - cf-db
+    - nw-connectivity
+    - routing
+
+- name: Set Aurora route table ID
+  set_fact:
+    aurora_route_table_id: "{{ aurora_route_table_result.stdout }}"
+  tags:
+    - cf-db
+    - nw-connectivity
+    - routing
+
+- name: Add route to ROSA VPC in Aurora VPC route table
+  shell: |
+    aws ec2 create-route \
+      --region {{ cf_db_config.region }} \
+      --route-table-id {{ aurora_route_table_id }} \
+      --destination-cidr-block {{ cf_db_vpc_cidrs.rosa_cluster_vpc }} \
+      --vpc-peering-connection-id {{ vpc_peering_connection_id }}
+  register: aurora_route_update
+  ignore_errors: yes
+  tags:
+    - cf-db
+    - nw-connectivity
+    - routing
+
+- name: Add route to Aurora VPC in ROSA VPC route table
+  shell: |
+    aws ec2 create-route \
+      --region us-east-1 \
+      --route-table-id {{ cf_db_config.vpc_peering.rosa_route_table_id }} \
+      --destination-cidr-block {{ cf_db_vpc_cidrs.current_vpc }} \
+      --vpc-peering-connection-id {{ vpc_peering_connection_id }}
+  register: rosa_route_update
+  ignore_errors: yes
+  tags:
+    - cf-db
+    - nw-connectivity
+    - routing
+
+- name: Create outputs directory
+  file:
+    path: "{{ playbook_dir }}/outputs"
+    state: directory
+    mode: '0755'
+  tags:
+    - cf-db
+    - nw-connectivity
+    - outputs
+
+- name: Generate VPC peering connectivity summary
+  copy:
+    content: |
+      {
+        "vpc_peering_summary": {
+          "connection_id": "{{ vpc_peering_connection_id }}",
+          "connection_name": "{{ cf_db_config.vpc_peering.connection_name }}",
+          "status": "{{ peering_status.stdout }}",
+          "environment": "{{ cf_db_config.common_tags.Environment }}",
+          "created_at": "{{ ansible_date_time.iso8601 }}",
+          "source_vpc": {
+            "vpc_id": "{{ cf_db_config.vpc_id }}",
+            "cidr": "{{ cf_db_vpc_cidrs.current_vpc }}",
+            "name": "Aurora VPC",
+            "route_table_id": "{{ aurora_route_table_id }}"
+          },
+          "target_vpc": {
+            "vpc_id": "{{ cf_db_config.vpc_peering.rosa_vpc_id }}",
+            "cidr": "{{ cf_db_vpc_cidrs.rosa_cluster_vpc }}",
+            "name": "ROSA Cluster VPC",
+            "route_table_id": "{{ cf_db_config.vpc_peering.rosa_route_table_id }}"
+          },
+          "routes_created": {
+            "aurora_to_rosa": {
+              "destination": "{{ cf_db_vpc_cidrs.rosa_cluster_vpc }}",
+              "target": "{{ vpc_peering_connection_id }}",
+              "route_table": "{{ aurora_route_table_id }}",
+              "status": "{{ 'success' if aurora_route_update.rc == 0 else 'failed' }}"
+            },
+            "rosa_to_aurora": {
+              "destination": "{{ cf_db_vpc_cidrs.current_vpc }}",
+              "target": "{{ vpc_peering_connection_id }}",
+              "route_table": "{{ cf_db_config.vpc_peering.rosa_route_table_id }}",
+              "status": "{{ 'success' if rosa_route_update.rc == 0 else 'failed' }}"
+            }
+          },
+          "aurora_cluster_endpoint": "{{ cf_db_config.database.cluster_name }}.cluster-c5ouqg2i83zv.{{ cf_db_config.region }}.rds.amazonaws.com",
+          "connectivity_test": {
+            "command": "telnet {{ cf_db_config.database.cluster_name }}.cluster-c5ouqg2i83zv.{{ cf_db_config.region }}.rds.amazonaws.com 5432",
+            "expected_result": "Connected",
+            "test_from": "ROSA cluster pods"
+          }
+        }
+      }
+    dest: "{{ playbook_dir }}/outputs/vpc-peering.json"
+    mode: '0644'
+  tags:
+    - cf-db
+    - nw-connectivity
+    - outputs
+
+- name: Display VPC peering completion summary
+  debug:
+    msg:
+      - "=== VPC Peering Network Connectivity Complete ==="
+      - "✅ VPC Peering Connection: {{ vpc_peering_connection_id }}"
+      - "✅ Connection Status: {{ peering_status.stdout }}"
+      - "✅ Aurora VPC Route Updated: {{ 'Success' if aurora_route_update.rc == 0 else 'Failed' }}"
+      - "✅ ROSA VPC Route Updated: {{ 'Success' if rosa_route_update.rc == 0 else 'Failed' }}"
+      - ""
+      - "Network Connectivity Details:"
+      - "- Aurora VPC ({{ cf_db_config.vpc_id }}) ⟷ ROSA VPC ({{ cf_db_config.vpc_peering.rosa_vpc_id }})"
+      - "- Route: {{ cf_db_vpc_cidrs.current_vpc }} ⟷ {{ cf_db_vpc_cidrs.rosa_cluster_vpc }}"
+      - ""
+      - "Next Steps:"
+      - "1. Test connectivity from ROSA pods to Aurora endpoint"
+      - "2. Verify security group rules allow traffic on port 5432"
+      - "3. Check DNS resolution of Aurora endpoint from ROSA cluster"
+      - "4. Restart bench-profile pods to establish database connections"
+      - ""
+      - "Connectivity Summary: outputs/vpc-peering.json"
+      - "=============================================="
+  tags:
+    - always
+    - cf-db
+    - nw-connectivity
+
+# Task execution examples:
+# VPC peering only:    ansible-playbook playbook.yml -t nw-connectivity
+# Full CF-DB role:     ansible-playbook playbook.yml -t cf-db
+# Networking tasks:    ansible-playbook playbook.yml -t networking
+# Validation only:     ansible-playbook playbook.yml -t validation
