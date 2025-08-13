@@ -25,22 +25,45 @@ spec:
       - name: frontend-service
         image: "{{ .Values.global.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["/bin/sh"]
+        args: ["/scripts/start.sh"]
         ports:
         - containerPort: {{ .Values.service.targetPort }}
           protocol: TCP
+        volumeMounts:
+        - name: frontend-scripts
+          mountPath: /scripts
+          readOnly: true
         {{- with .Values.deployment.resources }}
         resources:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+        {{- if .Values.deployment.env }}
+        env:
+          {{- toYaml .Values.deployment.env | nindent 10 }}
+        {{- end }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
         livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.service.targetPort }}
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          failureThreshold: 5
+        readinessProbe:
           httpGet:
             path: /
             port: {{ .Values.service.targetPort }}
           initialDelaySeconds: 30
           periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /
-            port: {{ .Values.service.targetPort }}
-          initialDelaySeconds: 5
-          periodSeconds: 5
+          failureThreshold: 5
+      volumes:
+      - name: frontend-scripts
+        configMap:
+          name: frontend-scripts
+          defaultMode: 0755

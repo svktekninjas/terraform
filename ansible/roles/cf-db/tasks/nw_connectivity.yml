@@ -5,14 +5,21 @@
 # Tags: ansible-playbook -t nw-connectivity (individual task)
 #       ansible-playbook -t cf-db (full role including this task)
 
+- name: Load role variables for VPC peering
+  include_vars: "{{ role_path }}/vars/main.yml"
+  tags:
+    - always
+    - cf-db
+    - nw-connectivity
+
 - name: Display VPC peering setup summary
   debug:
     msg:
       - "=== VPC Peering Network Connectivity Setup ==="
       - "Source VPC (Aurora): {{ cf_db_config.vpc_id }}"
       - "Target VPC (ROSA): {{ cf_db_config.vpc_peering.rosa_vpc_id }}"
-      - "Source VPC CIDR: {{ cf_db_vpc_cidrs.current_vpc }}"
-      - "Target VPC CIDR: {{ cf_db_vpc_cidrs.rosa_cluster_vpc }}"
+      - "Source VPC CIDR: {{ aurora_vpc_cidr | default(cf_db_vpc_cidrs.current_vpc) | default('172.31.0.0/16') }}"
+      - "Target VPC CIDR: {{ rosa_vpc_cidr | default(cf_db_vpc_cidrs.rosa_cluster_vpc) | default('10.0.0.0/16') }}"
       - "Environment: {{ cf_db_config.common_tags.Environment }}"
       - "=============================================="
   tags:
@@ -113,7 +120,7 @@
     aws ec2 create-route \
       --region {{ cf_db_config.region }} \
       --route-table-id {{ aurora_route_table_id }} \
-      --destination-cidr-block {{ cf_db_vpc_cidrs.rosa_cluster_vpc }} \
+      --destination-cidr-block {{ rosa_vpc_cidr | default(cf_db_vpc_cidrs.rosa_cluster_vpc) | default('10.0.0.0/16') }} \
       --vpc-peering-connection-id {{ vpc_peering_connection_id }}
   register: aurora_route_update
   ignore_errors: yes
@@ -127,7 +134,7 @@
     aws ec2 create-route \
       --region us-east-1 \
       --route-table-id {{ cf_db_config.vpc_peering.rosa_route_table_id }} \
-      --destination-cidr-block {{ cf_db_vpc_cidrs.current_vpc }} \
+      --destination-cidr-block {{ aurora_vpc_cidr | default(cf_db_vpc_cidrs.current_vpc) | default('172.31.0.0/16') }} \
       --vpc-peering-connection-id {{ vpc_peering_connection_id }}
   register: rosa_route_update
   ignore_errors: yes

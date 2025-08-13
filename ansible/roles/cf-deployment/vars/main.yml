@@ -34,7 +34,7 @@ service_ports:
   daily_submissions: 8080
   interviews: 8080
   placements: 8080
-  frontend: 80
+  frontend: 3000
 
 # Environment-specific replica counts
 replica_counts:

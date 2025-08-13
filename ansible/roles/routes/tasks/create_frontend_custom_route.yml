@@ -1,0 +1,73 @@
+# Create Frontend Custom route with probuddy.us domain for cf-dev namespace
+---
+- name: "Create Frontend Custom route with probuddy.us domain"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: frontend-custom
+      namespace: {{ routes_config.cf_namespace }}
+      labels:
+        app: frontend-service
+        environment: {{ target_environment }}
+        managed-by: ansible-routes
+    spec:
+      host: {{ routes_config.frontend_custom.hostname }}
+      port:
+        targetPort: {{ routes_config.frontend_custom.target_port }}
+      tls:
+        termination: {{ routes_config.tls.termination }}
+      to:
+        kind: Service
+        name: {{ routes_config.frontend_custom.service_name }}
+        weight: 100
+      wildcardPolicy: None
+    EOF
+  register: frontend_custom_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-custom
+    - frontend
+
+- name: "Get Frontend Custom route URL"
+  shell: |
+    oc get route frontend-custom -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: frontend_custom_route_url
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-custom
+    - frontend
+
+- name: "Verify Frontend Custom route status"
+  shell: |
+    oc get route frontend-custom -n {{ routes_config.cf_namespace }} -o jsonpath='{.status.ingress[0].conditions[0].status}' 2>/dev/null || echo "unknown"
+  register: frontend_custom_route_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-custom
+    - frontend
+
+- name: "Display Frontend Custom route creation results"
+  debug:
+    msg:
+      - "🎨 Frontend Custom Route Creation Results:"
+      - "  - Route Creation: {{ 'Success' if frontend_custom_route_result.rc == 0 else 'Failed' }}"
+      - "  - Route URL: {{ frontend_custom_route_url.stdout if frontend_custom_route_url.stdout != 'not-created' else 'Not Available' }}"
+      - "  - Route Status: {{ frontend_custom_route_status.stdout if frontend_custom_route_status.stdout != 'unknown' else 'Unknown' }}"
+      - "  - Full URL: https://{{ frontend_custom_route_url.stdout if frontend_custom_route_url.stdout != 'not-created' else routes_config.frontend_custom.hostname }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.cf_namespace }}"
+  tags:
+    - routes
+    - routes-frontend-custom
+    - frontend

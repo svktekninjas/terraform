@@ -13,20 +13,22 @@ cf_db_defaults:
 # Default Environment
 cf_db_environment: "dev"
 
-# Default VPC Configuration (using actual AWS resource IDs)
+# Default VPC Configuration (New 172.31.0.0/16 CIDR - No ROSA Conflict)
 cf_db_vpc_defaults:
-  vpc_id: "vpc-0642a6fba47ae2a28"
-  public_subnet_id: "subnet-021b476409dfe66ba"  # Public subnet for NAT Gateway
+  vpc_id: ""  # To be created with new CIDR
+  vpc_cidr: "172.31.0.0/16"  # New CIDR range to avoid ROSA conflict
+  public_subnet_id: ""  # To be created in new VPC
+  public_subnet_cidr: "172.31.1.0/24"  # Public subnet for NAT Gateway
   openshift_sg_id: ""  # Optional: OpenShift security group ID (set when available)
 
-# Default Private Subnets Configuration
+# Default Private Subnets Configuration (Updated for 172.31.0.0/16)
 cf_db_private_subnets_defaults:
-  - cidr: "10.0.2.0/24"
-    az: "us-east-1a"
+  - cidr: "172.31.2.0/24"
+    az: "us-west-1a"
     name: "cf-private-subnet-default-1a"
-  - cidr: "10.0.3.0/24"
-    az: "us-east-1b"
-    name: "cf-private-subnet-default-1b"
+  - cidr: "172.31.3.0/24"
+    az: "us-west-1c"
+    name: "cf-private-subnet-default-1c"
 
 # Default Route Table Configuration
 cf_db_route_table_defaults:
@@ -38,9 +40,10 @@ cf_db_security_group_defaults:
   description: "Aurora DB Security Group - Default"
   db_port: 5432
   allowed_cidrs:
-    - "10.0.0.0/16"
-    - "172.16.0.0/16"
-    - "192.168.0.0/16"
+    - "172.31.0.0/16"  # New Aurora VPC CIDR
+    - "10.0.0.0/16"    # ROSA cluster VPC CIDR (for cross-VPC access)
+    - "172.16.0.0/16"  # Additional private ranges if needed
+    - "192.168.0.0/16" # Additional private ranges if needed
 
 # Default Database Configuration
 cf_db_database_defaults:

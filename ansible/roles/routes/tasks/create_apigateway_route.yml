@@ -1,0 +1,73 @@
+# Create API Gateway route for cf-dev namespace
+---
+- name: "Create API Gateway route with OpenShift domain"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: apigateway-app
+      namespace: {{ routes_config.cf_namespace }}
+      labels:
+        app: apigateway-app
+        environment: {{ target_environment }}
+        managed-by: ansible-routes
+    spec:
+      host: {{ routes_config.apigateway.hostname }}
+      port:
+        targetPort: {{ routes_config.apigateway.target_port }}
+      tls:
+        termination: {{ routes_config.tls.termination }}
+      to:
+        kind: Service
+        name: {{ routes_config.apigateway.service_name }}
+        weight: 100
+      wildcardPolicy: None
+    EOF
+  register: apigateway_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-apigateway
+    - apigateway
+
+- name: "Get API Gateway route URL"
+  shell: |
+    oc get route apigateway-app -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: apigateway_route_url
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-apigateway
+    - apigateway
+
+- name: "Verify API Gateway route status"
+  shell: |
+    oc get route apigateway-app -n {{ routes_config.cf_namespace }} -o jsonpath='{.status.ingress[0].conditions[0].status}' 2>/dev/null || echo "unknown"
+  register: apigateway_route_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-apigateway
+    - apigateway
+
+- name: "Display API Gateway route creation results"
+  debug:
+    msg:
+      - "🌐 API Gateway Route Creation Results:"
+      - "  - Route Creation: {{ 'Success' if apigateway_route_result.rc == 0 else 'Failed' }}"
+      - "  - Route URL: {{ apigateway_route_url.stdout if apigateway_route_url.stdout != 'not-created' else 'Not Available' }}"
+      - "  - Route Status: {{ apigateway_route_status.stdout if apigateway_route_status.stdout != 'unknown' else 'Unknown' }}"
+      - "  - Full URL: https://{{ apigateway_route_url.stdout if apigateway_route_url.stdout != 'not-created' else routes_config.apigateway.hostname }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.cf_namespace }}"
+  tags:
+    - routes
+    - routes-apigateway
+    - apigateway

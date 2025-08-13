@@ -6,31 +6,80 @@
     - cluster
     - oidc-config
 
+- name: "Display command to check existing OIDC configurations"
+  debug:
+    msg: "Executing command: rosa list oidc-config"
+  tags:
+    - cluster
+    - oidc-config
+
 - name: "Check existing OIDC configurations"
-  shell: rosa list oidc-config
+  shell: |
+    echo "Running: rosa list oidc-config"
+    rosa list oidc-config
   register: existing_oidc_configs
   changed_when: false
   failed_when: false
+  check_mode: no  # Always run to check existing configs
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Display existing OIDC configs output"
+  debug:
+    msg:
+      - "Command output:"
+      - "Return code: {{ existing_oidc_configs.rc }}"
+      - "Stdout: {{ existing_oidc_configs.stdout }}"
+      - "Stderr: {{ existing_oidc_configs.stderr }}"
+      - "Number of lines: {{ existing_oidc_configs.stdout_lines | length }}"
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Display command to create OIDC configuration"
+  debug:
+    msg: "Will execute: rosa create oidc-config --mode {{ mode }} --yes"
+  when: 
+    - not existing_oidc_configs.skipped | default(false)
+    - existing_oidc_configs.stdout_lines | length <= 1
   tags:
     - cluster
     - oidc-config
 
 - name: "Create OIDC configuration"
   shell: |
+    echo "Running: rosa create oidc-config --mode {{ mode }} --yes"
     rosa create oidc-config \
       --mode {{ mode }} \
       --yes
   register: oidc_config_result
-  when: existing_oidc_configs.stdout_lines | length <= 1
+  when: 
+    - not existing_oidc_configs.skipped | default(false)
+    - existing_oidc_configs.stdout_lines | length <= 1
+  tags:
+    - cluster
+    - oidc-config
+
+- name: "Display OIDC creation result"
+  debug:
+    var: oidc_config_result
+  when: oidc_config_result is defined and not oidc_config_result.skipped | default(false)
   tags:
     - cluster
     - oidc-config
 
 - name: "Get OIDC config list after creation"
-  shell: rosa list oidc-config
+  shell: |
+    echo "Running: rosa list oidc-config"
+    rosa list oidc-config
   register: oidc_config_list
   changed_when: false
-  when: oidc_config_result is defined and oidc_config_result.changed
+  check_mode: no  # Always run to get the list
+  when: 
+    - oidc_config_result is defined 
+    - not oidc_config_result.skipped | default(false)
+    - oidc_config_result.changed | default(false)
   tags:
     - cluster
     - oidc-config
@@ -39,7 +88,10 @@
   set_fact:
     oidc_config_id: "{{ oidc_config_list.stdout_lines[1].split()[0] }}"
   when: 
-    - oidc_config_result is defined and oidc_config_result.changed
+    - oidc_config_result is defined 
+    - not oidc_config_result.skipped | default(false)
+    - oidc_config_result.changed | default(false)
+    - oidc_config_list is defined
     - oidc_config_list.stdout_lines | length > 1
   tags:
     - cluster
@@ -49,6 +101,7 @@
   set_fact:
     oidc_config_id: "{{ existing_oidc_configs.stdout_lines[1].split()[0] }}"
   when: 
+    - not existing_oidc_configs.skipped | default(false)
     - existing_oidc_configs.stdout_lines | length > 1
     - oidc_config_id is not defined
   tags:
@@ -59,8 +112,9 @@
   debug:
     msg:
       - "✅ OIDC configuration ready:"
-      - "  - OIDC Config ID: {{ oidc_config_id }}"
-      - "  - Status: {{ 'Created' if oidc_config_result is defined and oidc_config_result.changed else 'Using existing' }}"
+      - "  - OIDC Config ID: {{ oidc_config_id | default('Not set - will be created during actual run') }}"
+      - "  - Status: {{ 'Created' if (oidc_config_result is defined and not oidc_config_result.skipped | default(false) and oidc_config_result.changed | default(false)) else 'Using existing' }}"
+  when: oidc_config_id is defined or ansible_check_mode
   tags:
     - cluster
     - oidc-config

@@ -7,6 +7,31 @@ environment_name: "Development"
 # Routes configuration for dev environment
 routes_config:
   monitoring_namespace: "monitoring"
+  cf_namespace: "cf-dev"
+  
+  # API Gateway route configuration
+  apigateway:
+    hostname: "apigateway-app-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+    service_name: "apigateway-app"
+    target_port: "http"
+    route_name: "apigateway-app"
+    enabled: true
+    
+  # Frontend Custom route configuration (probuddy.us domain)
+  frontend_custom:
+    hostname: "cfdev.probuddy.us"
+    service_name: "frontend-service"
+    target_port: "http"
+    route_name: "frontend-custom"
+    enabled: true
+    
+  # Frontend Service route configuration (OpenShift domain)
+  frontend_service:
+    hostname: "frontend-service-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+    service_name: "frontend-service"
+    target_port: "http"
+    route_name: "frontend-service"
+    enabled: true
   
   # Grafana route configuration
   grafana:

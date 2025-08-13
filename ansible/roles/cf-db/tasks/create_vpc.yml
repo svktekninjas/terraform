@@ -1,0 +1,127 @@
+---
+# CF-DB Role VPC Creation Tasks
+# Creates new VPC with 172.31.0.0/16 CIDR to avoid ROSA cluster conflicts
+# This task is executed when vpc_id is empty in configuration
+
+- name: Display VPC creation summary
+  debug:
+    msg:
+      - "=== VPC Creation Phase ==="
+      - "Creating new VPC to avoid ROSA cluster CIDR conflicts"
+      - "New VPC CIDR: {{ cf_db_config.vpc_cidr }}"
+      - "Public Subnet CIDR: {{ cf_db_config.public_subnet_cidr }}"
+      - "Region: {{ cf_db_config.region }}"
+      - "============================"
+
+- name: Create Aurora VPC with new CIDR range
+  shell: |
+    aws ec2 create-vpc \
+      --region {{ cf_db_config.region }} \
+      --cidr-block {{ cf_db_config.vpc_cidr }} \
+      --tag-specifications 'ResourceType=vpc,Tags=[{Key=Name,Value=cf-aurora-vpc-{{ cf_db_config.common_tags.Environment }}},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}},{Key=Purpose,Value=Aurora-Database},{Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}}]' \
+      --query 'Vpc.VpcId' \
+      --output text
+  register: vpc_creation_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Set created VPC ID as fact
+  set_fact:
+    cf_db_created_vpc_id: "{{ vpc_creation_result.stdout }}"
+
+- name: Enable DNS hostnames for Aurora VPC
+  shell: |
+    aws ec2 modify-vpc-attribute \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_created_vpc_id }} \
+      --enable-dns-hostnames
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Enable DNS support for Aurora VPC
+  shell: |
+    aws ec2 modify-vpc-attribute \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_created_vpc_id }} \
+      --enable-dns-support
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Create public subnet for NAT Gateway
+  shell: |
+    aws ec2 create-subnet \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_created_vpc_id }} \
+      --cidr-block {{ cf_db_config.public_subnet_cidr }} \
+      --availability-zone {{ cf_db_config.availability_zones[0] }} \
+      --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=cf-aurora-public-subnet-{{ cf_db_config.common_tags.Environment }}},{Key=Type,Value=Public},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}}]' \
+      --query 'Subnet.SubnetId' \
+      --output text
+  register: public_subnet_creation_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Set created public subnet ID as fact
+  set_fact:
+    cf_db_created_public_subnet_id: "{{ public_subnet_creation_result.stdout }}"
+
+- name: Create Internet Gateway for Aurora VPC
+  shell: |
+    aws ec2 create-internet-gateway \
+      --region {{ cf_db_config.region }} \
+      --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=cf-aurora-igw-{{ cf_db_config.common_tags.Environment }}},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}}]' \
+      --query 'InternetGateway.InternetGatewayId' \
+      --output text
+  register: igw_creation_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Attach Internet Gateway to Aurora VPC
+  shell: |
+    aws ec2 attach-internet-gateway \
+      --region {{ cf_db_config.region }} \
+      --internet-gateway-id {{ igw_creation_result.stdout }} \
+      --vpc-id {{ cf_db_created_vpc_id }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Get main route table for Aurora VPC
+  shell: |
+    aws ec2 describe-route-tables \
+      --region {{ cf_db_config.region }} \
+      --filters "Name=vpc-id,Values={{ cf_db_created_vpc_id }}" "Name=association.main,Values=true" \
+      --query 'RouteTables[0].RouteTableId' \
+      --output text
+  register: main_route_table_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Add route to Internet Gateway in main route table
+  shell: |
+    aws ec2 create-route \
+      --region {{ cf_db_config.region }} \
+      --route-table-id {{ main_route_table_result.stdout }} \
+      --destination-cidr-block 0.0.0.0/0 \
+      --gateway-id {{ igw_creation_result.stdout }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+
+- name: Display VPC creation results
+  debug:
+    msg:
+      - "=== VPC Creation Completed ==="
+      - "✅ VPC ID: {{ cf_db_created_vpc_id }}"
+      - "✅ VPC CIDR: {{ cf_db_config.vpc_cidr }}"
+      - "✅ Public Subnet ID: {{ cf_db_created_public_subnet_id }}"
+      - "✅ Public Subnet CIDR: {{ cf_db_config.public_subnet_cidr }}"
+      - "✅ Internet Gateway: {{ igw_creation_result.stdout }}"
+      - "✅ Main Route Table: {{ main_route_table_result.stdout }}"
+      - ""
+      - "The VPC is ready for Aurora deployment!"
+      - "No CIDR conflicts with ROSA cluster (10.0.0.0/16)"
+      - "=============================="
+
+# Set runtime configuration for subsequent tasks
+- name: Update runtime VPC configuration
+  set_fact:
+    cf_db_config: "{{ cf_db_config | combine({'vpc_id': cf_db_created_vpc_id, 'public_subnet_id': cf_db_created_public_subnet_id}) }}"

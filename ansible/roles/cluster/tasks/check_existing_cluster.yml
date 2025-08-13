@@ -13,21 +13,43 @@
     - cluster
     - cluster-check
 
+- name: "Display the ROSA command that will be executed"
+  debug:
+    msg: "Executing command: rosa describe cluster --cluster={{ full_cluster_name }} --output json"
+  tags:
+    - cluster
+    - cluster-check
+
 - name: "Check if cluster already exists"
-  shell: rosa describe cluster {{ full_cluster_name }} --output json
+  shell: |
+    echo "Running: rosa describe cluster --cluster={{ full_cluster_name }} --output json"
+    rosa describe cluster --cluster={{ full_cluster_name }} --output json
   register: existing_cluster_check
   changed_when: false
   failed_when: false
+  check_mode: no  # Always run this task even in check mode since it's read-only
+  tags:
+    - cluster
+    - cluster-check
+
+- name: "Display command output"
+  debug:
+    var: existing_cluster_check
   tags:
     - cluster
     - cluster-check
 
 - name: "Display existing cluster information"
   debug:
-    msg:
+    msg: 
       - "📋 Existing cluster found: {{ full_cluster_name }}"
-      - "Cluster details: {{ existing_cluster_check.stdout | from_json }}"
-  when: existing_cluster_check.rc == 0
+      - "Return code: {{ existing_cluster_check.rc }}"
+      - "Stdout: {{ existing_cluster_check.stdout }}"
+      - "Stderr: {{ existing_cluster_check.stderr }}"
+  when: 
+    - not existing_cluster_check.skipped | default(false)
+    - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
   tags:
     - cluster
     - cluster-check
@@ -45,7 +67,10 @@
       
       Please enter your choice (1/2/3)
   register: user_cluster_choice
-  when: existing_cluster_check.rc == 0
+  when: 
+    - not existing_cluster_check.skipped | default(false)
+    - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
   tags:
     - cluster
     - cluster-check
@@ -62,7 +87,10 @@
       {%- else -%}
       invalid
       {%- endif -%}
-  when: existing_cluster_check.rc == 0
+  when: 
+    - not existing_cluster_check.skipped | default(false)
+    - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
   tags:
     - cluster
     - cluster-check
@@ -71,7 +99,9 @@
   fail:
     msg: "❌ Invalid choice '{{ user_cluster_choice.user_input }}'. Please run again and choose 1, 2, or 3."
   when: 
+    - not existing_cluster_check.skipped | default(false)
     - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
     - cluster_action == "invalid"
   tags:
     - cluster
@@ -81,7 +111,9 @@
   fail:
     msg: "🛑 Cluster creation aborted by user request."
   when: 
+    - not existing_cluster_check.skipped | default(false)
     - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
     - cluster_action == "abort"
   tags:
     - cluster
@@ -91,7 +123,9 @@
   set_fact:
     skip_cluster_creation: true
   when: 
+    - not existing_cluster_check.skipped | default(false)
     - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
     - cluster_action == "use_existing"
   tags:
     - cluster
@@ -102,7 +136,9 @@
     delete_existing_cluster: true
     skip_cluster_creation: false
   when: 
+    - not existing_cluster_check.skipped | default(false)
     - existing_cluster_check.rc == 0
+    - existing_cluster_check.stdout != ""
     - cluster_action == "delete_recreate"
   tags:
     - cluster
@@ -112,7 +148,10 @@
   set_fact:
     skip_cluster_creation: false
     delete_existing_cluster: false
-  when: existing_cluster_check.rc != 0
+  when: |
+    existing_cluster_check.skipped | default(false) or
+    existing_cluster_check.rc != 0 or
+    existing_cluster_check.stdout == ""
   tags:
     - cluster
     - cluster-check

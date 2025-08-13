@@ -6,10 +6,17 @@ image:
 service:
   type: ClusterIP
   port: 80
-  targetPort: 80
+  targetPort: 3000
 
 deployment:
   replicas: 2
+  env:
+    - name: NODE_ENV
+      value: "development"
+    - name: PORT
+      value: "3000"
+    - name: REACT_APP_API_URL
+      value: "https://apigateway-app-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
   resources:
     limits:
       cpu: 250m
@@ -28,4 +35,4 @@ global:
   namespace: cf-dev
   registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
   imagePullSecrets:
-    - name: ecr-secret
+    - name: regcred

@@ -1,5 +1,5 @@
 ---
-# Aurora DB Cluster Creation Tasks
+# Aurora DB Cluster Creation Tasks (AWS CLI)
 # Dependencies: Requires private_subnet_ids from private_subnets.yml and aurora_sg from security_groups.yml
 
 - name: Check if private subnet IDs are available
@@ -11,15 +11,16 @@
     - database
 
 - name: Get private subnet IDs if not available (dependency check)
-  amazon.aws.ec2_vpc_subnet_info:
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    filters:
-      "vpc-id": "{{ cf_db_config.vpc_id }}"
-      "tag:Component": "Database"
-      "tag:Environment": "{{ cf_db_config.common_tags.Environment }}"
-  register: existing_private_subnets
+  shell: |
+    aws ec2 describe-subnets \
+      --region {{ cf_db_config.region }} \
+      --filters "Name=vpc-id,Values={{ cf_db_config.vpc_id | default(cf_db_created_vpc_id) }}" "Name=tag:Type,Values=Private" \
+      --query 'Subnets[].SubnetId' \
+      --output text
+  register: existing_private_subnets_result
   when: private_subnet_ids | length == 0
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
@@ -27,8 +28,8 @@
 
 - name: Set private subnet IDs from existing subnets
   set_fact:
-    private_subnet_ids: "{{ existing_private_subnets.subnets | map(attribute='subnet_id') | list }}"
-  when: private_subnet_ids | length == 0 and existing_private_subnets.subnets is defined
+    private_subnet_ids: "{{ existing_private_subnets_result.stdout.split() }}"
+  when: private_subnet_ids | length == 0 and existing_private_subnets_result.stdout is defined
   tags:
     - cf-db
     - db-cluster
@@ -43,14 +44,16 @@
     - database
 
 - name: Get Aurora security group if not available (dependency check)
-  amazon.aws.ec2_security_group_info:
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    filters:
-      "group-name": "{{ cf_db_config.security_group.name }}"
-      "vpc-id": "{{ cf_db_config.vpc_id }}"
-  register: existing_aurora_sg
+  shell: |
+    aws ec2 describe-security-groups \
+      --region {{ cf_db_config.region }} \
+      --filters "Name=group-name,Values={{ cf_db_config.security_group.name }}" "Name=vpc-id,Values={{ cf_db_config.vpc_id | default(cf_db_created_vpc_id) }}" \
+      --query 'SecurityGroups[0].GroupId' \
+      --output text
+  register: existing_aurora_sg_result
   when: aurora_sg.group_id is not defined
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
@@ -58,8 +61,9 @@
 
 - name: Set Aurora security group from existing SG
   set_fact:
-    aurora_sg: "{{ {'group_id': existing_aurora_sg.security_groups[0].group_id} }}"
-  when: aurora_sg.group_id is not defined and existing_aurora_sg.security_groups | length > 0
+    aurora_sg:
+      group_id: "{{ existing_aurora_sg_result.stdout }}"
+  when: aurora_sg.group_id is not defined and existing_aurora_sg_result.stdout != "None"
   tags:
     - cf-db
     - db-cluster
@@ -94,120 +98,246 @@
     - database
 
 - name: Create DB Subnet Group for Aurora (Multi-AZ)
-  amazon.aws.rds_subnet_group:
-    state: present
-    name: "{{ cf_db_config.db_subnet_group.name }}"
-    description: "{{ cf_db_config.db_subnet_group.description }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    subnets: "{{ private_subnet_ids }}"
-    tags:
-      Name: "{{ cf_db_config.db_subnet_group.name }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  shell: |
+    aws rds create-db-subnet-group \
+      --region {{ cf_db_config.region }} \
+      --db-subnet-group-name "{{ cf_db_config.db_subnet_group.name }}" \
+      --db-subnet-group-description "{{ cf_db_config.db_subnet_group.description }}" \
+      --subnet-ids {{ private_subnet_ids | join(' ') }} \
+      --tags Key=Name,Value="{{ cf_db_config.db_subnet_group.name }}" Key=Environment,Value="{{ cf_db_config.common_tags.Environment }}" Key=Project,Value="{{ cf_db_config.common_tags.Project }}" Key=Component,Value="{{ cf_db_config.common_tags.Component }}" Key=ManagedBy,Value="{{ cf_db_config.common_tags.ManagedBy }}"
+  register: subnet_group_result
+  failed_when: 
+    - subnet_group_result.rc != 0
+    - "'DBSubnetGroupAlreadyExists' not in subnet_group_result.stderr"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
     - database
 
 - name: Create Aurora PostgreSQL Cluster
-  amazon.aws.rds_cluster:
-    state: present
-    engine: "{{ cf_db_config.database.engine }}"
-    engine_version: "{{ cf_db_config.database.engine_version }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    cluster_id: "{{ cf_db_config.database.cluster_name }}"
-    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
-    vpc_security_group_ids:
-      - "{{ aurora_sg.group_id }}"
-    database_name: "{{ cf_db_config.database.database_name }}"
-    master_username: "{{ cf_db_config.database.master_username }}"
-    master_user_password: "{{ cf_db_config.database.master_password }}"
-    backup_retention_period: "{{ cf_db_config.database.backup_retention_period }}"
-    preferred_backup_window: "{{ cf_db_config.database.preferred_backup_window }}"
-    preferred_maintenance_window: "{{ cf_db_config.database.preferred_maintenance_window | default('sun:05:00-sun:06:00') }}"
-    deletion_protection: "{{ cf_db_config.database.deletion_protection | default(false) }}"
-    tags:
-      Name: "{{ cf_db_config.database.cluster_name }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: aurora_cluster
+  shell: |
+    aws rds create-db-cluster \
+      --region {{ cf_db_config.region }} \
+      --db-cluster-identifier "{{ cf_db_config.database.cluster_name }}" \
+      --engine "{{ cf_db_config.database.engine }}" \
+      --engine-version "{{ cf_db_config.database.engine_version }}" \
+      --master-username "{{ cf_db_config.database.master_username }}" \
+      --master-user-password "{{ db_password | default(cf_db_config.database.master_password) }}" \
+      --database-name "{{ cf_db_config.database.database_name }}" \
+      --db-subnet-group-name "{{ cf_db_config.db_subnet_group.name }}" \
+      --vpc-security-group-ids "{{ aurora_sg.group_id }}" \
+      --backup-retention-period {{ cf_db_config.database.backup_retention_period }} \
+      --preferred-backup-window "{{ cf_db_config.database.preferred_backup_window }}" \
+      --preferred-maintenance-window "{{ cf_db_config.database.preferred_maintenance_window | default('sun:05:00-sun:06:00') }}" \
+      --enable-cloudwatch-logs-exports postgresql \
+      {% if cf_db_config.database.deletion_protection | default(false) %}--deletion-protection{% else %}--no-deletion-protection{% endif %} \
+      --tags Key=Name,Value="{{ cf_db_config.database.cluster_name }}" Key=Environment,Value="{{ cf_db_config.common_tags.Environment }}" Key=Project,Value="{{ cf_db_config.common_tags.Project }}" Key=Component,Value="{{ cf_db_config.common_tags.Component }}" Key=ManagedBy,Value="{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_cluster_result
+  failed_when: 
+    - aurora_cluster_result.rc != 0
+    - "'DBClusterAlreadyExistsFault' not in aurora_cluster_result.stderr"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
     - database
 
+- name: Check Aurora cluster status
+  shell: |
+    aws rds describe-db-clusters \
+      --region {{ cf_db_config.region }} \
+      --db-cluster-identifier "{{ cf_db_config.database.cluster_name }}" \
+      --query 'DBClusters[0].Status' \
+      --output text
+  register: cluster_status_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
 
 - name: Create Aurora Cluster Writer Instance
-  amazon.aws.rds_instance:
-    state: present
-    db_instance_identifier: "{{ cf_db_config.database.instances[0].identifier }}"
-    engine: "{{ cf_db_config.database.engine }}"
-    engine_version: "{{ cf_db_config.database.engine_version }}"
-    db_instance_class: "{{ cf_db_config.database.instances[0].instance_class }}"
-    db_cluster_identifier: "{{ aurora_cluster.db_cluster_identifier }}"
-    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    publicly_accessible: "{{ cf_db_config.database.publicly_accessible }}"
-    availability_zone: "{{ cf_db_config.database.instances[0].az }}"
-    tags:
-      Name: "{{ cf_db_config.database.instances[0].identifier }}"
-      Role: "Writer"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: aurora_writer
+  shell: |
+    aws rds create-db-instance \
+      --region {{ cf_db_config.region }} \
+      --db-instance-identifier "{{ cf_db_config.database.instances[0].identifier }}" \
+      --db-cluster-identifier "{{ cf_db_config.database.cluster_name }}" \
+      --engine "{{ cf_db_config.database.engine }}" \
+      --db-instance-class "{{ cf_db_config.database.instances[0].instance_class }}" \
+      {% if cf_db_config.database.publicly_accessible %}--publicly-accessible{% else %}--no-publicly-accessible{% endif %} \
+      --tags Key=Name,Value="{{ cf_db_config.database.instances[0].identifier }}" Key=Role,Value="Writer" Key=Environment,Value="{{ cf_db_config.common_tags.Environment }}" Key=Project,Value="{{ cf_db_config.common_tags.Project }}" Key=Component,Value="{{ cf_db_config.common_tags.Component }}" Key=ManagedBy,Value="{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_writer_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Wait for Aurora writer instance to be available
+  shell: |
+    aws rds wait db-instance-available \
+      --region {{ cf_db_config.region }} \
+      --db-instance-identifier "{{ cf_db_config.database.instances[0].identifier }}"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
     - database
 
 - name: Create Aurora Cluster Reader Instance
-  amazon.aws.rds_instance:
-    state: present
-    db_instance_identifier: "{{ cf_db_config.database.instances[1].identifier }}"
-    engine: "{{ cf_db_config.database.engine }}"
-    engine_version: "{{ cf_db_config.database.engine_version }}"
-    db_instance_class: "{{ cf_db_config.database.instances[1].instance_class }}"
-    db_cluster_identifier: "{{ aurora_cluster.db_cluster_identifier }}"
-    db_subnet_group_name: "{{ cf_db_config.db_subnet_group.name }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    publicly_accessible: "{{ cf_db_config.database.publicly_accessible }}"
-    availability_zone: "{{ cf_db_config.database.instances[1].az }}"
-    tags:
-      Name: "{{ cf_db_config.database.instances[1].identifier }}"
-      Role: "Reader"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: aurora_reader
+  shell: |
+    aws rds create-db-instance \
+      --region {{ cf_db_config.region }} \
+      --db-instance-identifier "{{ cf_db_config.database.instances[1].identifier }}" \
+      --db-cluster-identifier "{{ cf_db_config.database.cluster_name }}" \
+      --engine "{{ cf_db_config.database.engine }}" \
+      --db-instance-class "{{ cf_db_config.database.instances[1].instance_class }}" \
+      {% if cf_db_config.database.publicly_accessible %}--publicly-accessible{% else %}--no-publicly-accessible{% endif %} \
+      --tags Key=Name,Value="{{ cf_db_config.database.instances[1].identifier }}" Key=Role,Value="Reader" Key=Environment,Value="{{ cf_db_config.common_tags.Environment }}" Key=Project,Value="{{ cf_db_config.common_tags.Project }}" Key=Component,Value="{{ cf_db_config.common_tags.Component }}" Key=ManagedBy,Value="{{ cf_db_config.common_tags.ManagedBy }}"
+  register: aurora_reader_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - db-cluster
     - database
 
+- name: Wait for Aurora reader instance to be available
+  shell: |
+    aws rds wait db-instance-available \
+      --region {{ cf_db_config.region }} \
+      --db-instance-identifier "{{ cf_db_config.database.instances[1].identifier }}"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Get Aurora cluster endpoints
+  shell: |
+    aws rds describe-db-clusters \
+      --region {{ cf_db_config.region }} \
+      --db-cluster-identifier "{{ cf_db_config.database.cluster_name }}" \
+      --query 'DBClusters[0].[Endpoint,ReaderEndpoint]' \
+      --output text
+  register: aurora_endpoints_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Set Aurora endpoints facts
+  set_fact:
+    aurora_writer_endpoint: "{{ aurora_endpoints_result.stdout.split()[0] }}"
+    aurora_reader_endpoint: "{{ aurora_endpoints_result.stdout.split()[1] }}"
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+
+- name: Create Aurora cluster outputs file
+  copy:
+    content: |
+      {
+        "aurora_cluster_summary": {
+          "cluster_name": "{{ cf_db_config.database.cluster_name }}",
+          "environment": "{{ cf_db_config.common_tags.Environment }}",
+          "created_at": "{{ ansible_date_time.iso8601 }}",
+          "region": "{{ cf_db_config.region }}",
+          "engine": "{{ cf_db_config.database.engine }}",
+          "engine_version": "{{ cf_db_config.database.engine_version }}",
+          "cluster_endpoints": {
+            "writer_endpoint": "{{ aurora_writer_endpoint }}",
+            "reader_endpoint": "{{ aurora_reader_endpoint }}",
+            "port": {{ cf_db_config.security_group.db_port }}
+          },
+          "instances": [
+            {
+              "identifier": "{{ cf_db_config.database.instances[0].identifier }}",
+              "role": "writer",
+              "instance_class": "{{ cf_db_config.database.instances[0].instance_class }}",
+              "availability_zone": "{{ cf_db_config.database.instances[0].az }}"
+            },
+            {
+              "identifier": "{{ cf_db_config.database.instances[1].identifier }}",
+              "role": "reader", 
+              "instance_class": "{{ cf_db_config.database.instances[1].instance_class }}",
+              "availability_zone": "{{ cf_db_config.database.instances[1].az }}"
+            }
+          ],
+          "network_configuration": {
+            "vpc_id": "{{ cf_db_config.vpc_id }}",
+            "db_subnet_group": "{{ cf_db_config.db_subnet_group.name }}",
+            "security_group_id": "{{ aurora_sg.group_id }}",
+            "security_group_name": "{{ cf_db_config.security_group.name }}",
+            "private_subnets": {{ private_subnet_ids | to_json }}
+          },
+          "database_configuration": {
+            "database_name": "{{ cf_db_config.database.database_name }}",
+            "master_username": "{{ cf_db_config.database.master_username }}",
+            "backup_retention_period": {{ cf_db_config.database.backup_retention_period }},
+            "backup_window": "{{ cf_db_config.database.preferred_backup_window }}",
+            "maintenance_window": "{{ cf_db_config.database.preferred_maintenance_window }}",
+            "deletion_protection": {{ cf_db_config.database.deletion_protection | default(false) | to_json }},
+            "publicly_accessible": {{ cf_db_config.database.publicly_accessible | to_json }}
+          },
+          "connection_examples": {
+            "psql_writer": "psql -h {{ aurora_writer_endpoint }} -p {{ cf_db_config.security_group.db_port }} -U {{ cf_db_config.database.master_username }} -d {{ cf_db_config.database.database_name }}",
+            "psql_reader": "psql -h {{ aurora_reader_endpoint }} -p {{ cf_db_config.security_group.db_port }} -U {{ cf_db_config.database.master_username }} -d {{ cf_db_config.database.database_name }}",
+            "connection_string": "postgresql://{{ cf_db_config.database.master_username }}:PASSWORD@{{ aurora_writer_endpoint }}:{{ cf_db_config.security_group.db_port }}/{{ cf_db_config.database.database_name }}"
+          },
+          "kubernetes_secret_template": {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": "aurora-db-credentials",
+              "namespace": "default"
+            },
+            "type": "Opaque",
+            "stringData": {
+              "DB_HOST": "{{ aurora_writer_endpoint }}",
+              "DB_HOST_READER": "{{ aurora_reader_endpoint }}",
+              "DB_PORT": "{{ cf_db_config.security_group.db_port }}",
+              "DB_NAME": "{{ cf_db_config.database.database_name }}",
+              "DB_USERNAME": "{{ cf_db_config.database.master_username }}",
+              "DB_PASSWORD": "REPLACE_WITH_ACTUAL_PASSWORD"
+            }
+          }
+        }
+      }
+    dest: "{{ role_path }}/outputs/aurora-cluster-{{ cf_db_config.common_tags.Environment }}.json"
+    mode: '0644'
+  tags:
+    - cf-db
+    - db-cluster
+    - database
+    - outputs
+
 - name: Display Aurora cluster information
   debug:
     msg:
-      - "Aurora cluster created: {{ aurora_cluster.db_cluster_identifier }}"
-      - "Writer endpoint: {{ aurora_cluster.endpoint }}"
-      - "Reader endpoint: {{ aurora_cluster.reader_endpoint }}"
-      - "Writer instance: {{ aurora_writer.db_instance_identifier }} ({{ cf_db_config.database.instances[0].az }})"
-      - "Reader instance: {{ aurora_reader.db_instance_identifier }} ({{ cf_db_config.database.instances[1].az }})"
-      - "Database accessible from cross-VPC ROSA clusters"
-      - "Connection details:"
-      - "  - Database: {{ cf_db_config.database.database_name }}"
-      - "  - Username: {{ cf_db_config.database.master_username }}"
-      - "  - Port: {{ cf_db_config.security_group.db_port }}"
+      - "=== Aurora PostgreSQL Cluster Created ==="
+      - "Cluster Name: {{ cf_db_config.database.cluster_name }}"
+      - "Writer Endpoint: {{ aurora_writer_endpoint }}"
+      - "Reader Endpoint: {{ aurora_reader_endpoint }}"
+      - "Writer Instance: {{ cf_db_config.database.instances[0].identifier }} ({{ cf_db_config.database.instances[0].az }})"
+      - "Reader Instance: {{ cf_db_config.database.instances[1].identifier }} ({{ cf_db_config.database.instances[1].az }})"
+      - "Database: {{ cf_db_config.database.database_name }}"
+      - "Username: {{ cf_db_config.database.master_username }}"
+      - "Port: {{ cf_db_config.security_group.db_port }}"
+      - ""
+      - "📁 Outputs saved to: {{ role_path }}/outputs/aurora-cluster-{{ cf_db_config.common_tags.Environment }}.json"
+      - "🔒 Database accessible from cross-VPC ROSA clusters"
+      - "========================================"
   tags:
     - cf-db
     - db-cluster

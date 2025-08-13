@@ -10,11 +10,24 @@ service:
 
 deployment:
   replicas: 2
+  frontendUrl: "https://frontend-service-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
   env:
     - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_SERVICE_BASE_URL
       value: http://apigateway-app:8765
     - name: SPRING_BOOT_ADMIN_CLIENT_URL
       value: http://spring-boot-admin:8082
+    - name: CORS_ALLOWED_ORIGINS
+      value: "https://frontend-service-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
+    - name: CORS_ALLOWED_METHODS
+      value: "GET,POST,PUT,DELETE,OPTIONS"
+    - name: CORS_ALLOWED_HEADERS
+      value: "*"
+    - name: CORS_ALLOW_CREDENTIALS
+      value: "true"
+    - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+      value: "http://naming-server-new:8761/eureka"
+    - name: JAVA_OPTS
+      value: "-Dcors.allowed.origins=https://frontend-service-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com"
   resources:
     limits:
       cpu: 500m
@@ -32,3 +45,5 @@ route:
 global:
   namespace: cf-dev
   registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  imagePullSecrets:
+    - name: regcred

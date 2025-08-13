@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-scripts
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: frontend-service
+    version: {{ .Chart.AppVersion }}
+data:
+  start.sh: |
+    #!/bin/sh
+    echo "Starting Frontend React Application..."
+    cd /consulting-firm-frontend
+    node /scripts/server.js
+  
+  server.js: |
+    const http = require('http');
+    const fs = require('fs');
+    const path = require('path');
+
+    console.log('Initializing Frontend React Server...');
+    
+    // Get API URL from environment variable
+    const API_URL = process.env.REACT_APP_API_URL || 'https://apigateway-app-cf-dev.apps.o0r9m0f2v7l3b1c.55n4.p1.openshiftapps.com';
+    console.log('🔗 Runtime API URL replacement:', API_URL);
+
+    const server = http.createServer((req, res) => {
+      console.log('Request:', req.method, req.url);
+      
+      // Serve static files from build directory
+      let filePath = path.join('/consulting-firm-frontend/build', req.url === '/' ? 'index.html' : req.url);
+      
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          console.log('File not found:', filePath, '- serving index.html for SPA routing');
+          // For SPA routing, serve index.html for any missing routes
+          fs.readFile('/consulting-firm-frontend/build/index.html', (err2, indexData) => {
+            if (err2) {
+              console.error('Error reading index.html:', err2.message);
+              res.writeHead(404, {'Content-Type': 'text/plain'});
+              res.end('Not found');
+            } else {
+              // Replace hardcoded API URL with environment variable
+              let content = indexData.toString();
+              content = content.replace(/https:\/\/apigateway\.probuddy\.us/g, API_URL);
+              
+              res.writeHead(200, {'Content-Type': 'text/html'});
+              res.end(content);
+            }
+          });
+        } else {
+          // Determine content type based on file extension
+          const ext = path.extname(filePath);
+          const contentType = 
+            ext === '.js' ? 'application/javascript' :
+            ext === '.css' ? 'text/css' :
+            ext === '.html' ? 'text/html' :
+            ext === '.json' ? 'application/json' :
+            ext === '.png' ? 'image/png' :
+            ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+            ext === '.ico' ? 'image/x-icon' :
+            'text/plain';
+          
+          // Replace hardcoded API URL in JavaScript and HTML files at runtime
+          if (ext === '.js' || ext === '.html') {
+            let content = data.toString();
+            const originalContent = content;
+            content = content.replace(/https:\/\/apigateway\.probuddy\.us/g, API_URL);
+            if (originalContent !== content) {
+              console.log('🔄 Replaced API URL in:', filePath);
+            }
+            data = Buffer.from(content);
+          }
+          
+          console.log('Serving:', filePath, 'as', contentType);
+          res.writeHead(200, {'Content-Type': contentType});
+          res.end(data);
+        }
+      });
+    });
+
+    const PORT = process.env.PORT || 3000;
+    const HOST = '0.0.0.0';
+
+    server.listen(PORT, HOST, () => {
+      console.log(`🚀 Frontend React App running on http://${HOST}:${PORT}`);
+      console.log(`📁 Serving from: /consulting-firm-frontend/build`);
+      console.log(`🌐 API Gateway URL: ${process.env.REACT_APP_API_URL || 'Not configured'}`);
+      console.log(`🔧 Environment: ${process.env.NODE_ENV || 'production'}`);
+    });
+
+    // Handle graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('Received SIGTERM, shutting down gracefully...');
+      server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+      });
+    });

@@ -18,28 +18,70 @@
   tags:
     - routes
 
+# CF-Dev Namespace Routes
+- name: Include API Gateway route creation
+  include_tasks: create_apigateway_route.yml
+  when: routes_config.apigateway.enabled | default(true)
+  tags:
+    - routes
+    - routes-apigateway
+    - apigateway
+    - cf-dev
+
+- name: Include Frontend Custom route creation
+  include_tasks: create_frontend_custom_route.yml
+  when: routes_config.frontend_custom.enabled | default(true)
+  tags:
+    - routes
+    - routes-frontend-custom
+    - frontend
+    - cf-dev
+
+- name: Include Frontend Service route creation
+  include_tasks: create_frontend_service_route.yml
+  when: routes_config.frontend_service.enabled | default(true)
+  tags:
+    - routes
+    - routes-frontend-service
+    - frontend
+    - cf-dev
+
+# Monitoring Namespace Routes
 - name: Include Grafana route creation
   include_tasks: create_grafana_route.yml
-  when: grafana_route_enabled | default(true)
+  when: routes_config.grafana.enabled | default(true)
   tags:
     - routes
     - routes-grafana
     - grafana
+    - monitoring
 
 - name: Include Prometheus route creation
   include_tasks: create_prometheus_route.yml
-  when: prometheus_route_enabled | default(true)
+  when: routes_config.prometheus.enabled | default(true)
   tags:
     - routes
     - routes-prometheus
     - prometheus
+    - monitoring
 
-- name: Include route validation
+# Route Validation
+- name: Include CF-Dev routes validation
+  include_tasks: validate_cf_dev_routes.yml
+  when: validate_routes_enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - cf-dev
+    - validation
+
+- name: Include monitoring routes validation
   include_tasks: validate_routes.yml
   when: validate_routes_enabled | default(true)
   tags:
     - routes
     - routes-validate
+    - monitoring
     - validation
 
 - name: "Complete ROSA Cluster Routes Setup for {{ target_environment }} environment"

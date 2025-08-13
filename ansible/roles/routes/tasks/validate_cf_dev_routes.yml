@@ -1,0 +1,131 @@
+# Validate all routes in cf-dev namespace
+---
+- name: "Get all routes in cf-dev namespace"
+  shell: |
+    oc get routes -n {{ routes_config.cf_namespace }} --no-headers | awk '{print $1 ":" $2}' || echo "no-routes"
+  register: all_cf_dev_routes
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-validate
+    - cf-dev
+
+- name: "Test API Gateway route accessibility"
+  shell: |
+    oc get route apigateway-app -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null | xargs -I {} curl -s -o /dev/null -w "%{http_code}" -k https://{}/actuator/health --connect-timeout 10 || echo "000"
+  register: apigateway_route_test
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: routes_config.apigateway.enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - apigateway
+
+- name: "Test Frontend Custom route accessibility"
+  shell: |
+    oc get route frontend-custom -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null | xargs -I {} curl -s -o /dev/null -w "%{http_code}" -k https://{} --connect-timeout 10 || echo "000"
+  register: frontend_custom_route_test
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: routes_config.frontend_custom.enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - frontend
+
+- name: "Test Frontend Service route accessibility"
+  shell: |
+    oc get route frontend-service -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null | xargs -I {} curl -s -o /dev/null -w "%{http_code}" -k https://{} --connect-timeout 10 || echo "000"
+  register: frontend_service_route_test
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  when: routes_config.frontend_service.enabled | default(true)
+  tags:
+    - routes
+    - routes-validate
+    - frontend
+
+- name: "Get route ingress status for all cf-dev routes"
+  shell: |
+    echo "=== API Gateway Route Status ==="
+    oc get route apigateway-app -n {{ routes_config.cf_namespace }} -o json 2>/dev/null | jq -r '.status.ingress[0] // "No ingress status"' || echo "Route not found"
+    echo ""
+    echo "=== Frontend Custom Route Status ==="
+    oc get route frontend-custom -n {{ routes_config.cf_namespace }} -o json 2>/dev/null | jq -r '.status.ingress[0] // "No ingress status"' || echo "Route not found"
+    echo ""
+    echo "=== Frontend Service Route Status ==="
+    oc get route frontend-service -n {{ routes_config.cf_namespace }} -o json 2>/dev/null | jq -r '.status.ingress[0] // "No ingress status"' || echo "Route not found"
+  register: cf_dev_routes_ingress_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-validate
+    - cf-dev
+
+- name: "Get route endpoints for all cf-dev routes"
+  shell: |
+    echo "=== API Gateway Endpoints ==="
+    oc get route apigateway-app -n {{ routes_config.cf_namespace }} -o yaml 2>/dev/null | grep -A 10 "status:" || echo "No endpoints found"
+    echo ""
+    echo "=== Frontend Custom Endpoints ==="
+    oc get route frontend-custom -n {{ routes_config.cf_namespace }} -o yaml 2>/dev/null | grep -A 10 "status:" || echo "No endpoints found"
+    echo ""
+    echo "=== Frontend Service Endpoints ==="
+    oc get route frontend-service -n {{ routes_config.cf_namespace }} -o yaml 2>/dev/null | grep -A 10 "status:" || echo "No endpoints found"
+  register: cf_dev_routes_endpoints
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-validate
+    - cf-dev
+
+- name: "Display comprehensive cf-dev routes validation results"
+  debug:
+    msg:
+      - "✅ CF-DEV Routes Validation Report:"
+      - ""
+      - "🌐 Routes Overview:"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.cf_namespace }}"
+      - "  - All Routes: {{ all_cf_dev_routes.stdout_lines | join(', ') if all_cf_dev_routes.stdout != 'no-routes' else 'None found' }}"
+      - ""
+      - "🌐 API Gateway Route:"
+      - "  - Enabled: {{ routes_config.apigateway.enabled | default(true) }}"
+      - "  - URL: https://{{ routes_config.apigateway.hostname }}"
+      - "  - HTTP Status: {{ apigateway_route_test.stdout if apigateway_route_test.stdout is defined else 'Not Tested' }}"
+      - "  - Health Check: {{ 'OK' if (apigateway_route_test.stdout is defined and apigateway_route_test.stdout in ['200', '301', '302']) else 'Issues Detected' }}"
+      - ""
+      - "🎨 Frontend Custom Route:"
+      - "  - Enabled: {{ routes_config.frontend_custom.enabled | default(true) }}"
+      - "  - URL: https://{{ routes_config.frontend_custom.hostname }}"
+      - "  - HTTP Status: {{ frontend_custom_route_test.stdout if frontend_custom_route_test.stdout is defined else 'Not Tested' }}"
+      - "  - Accessibility: {{ 'OK' if (frontend_custom_route_test.stdout is defined and frontend_custom_route_test.stdout in ['200', '301', '302']) else 'Issues Detected' }}"
+      - ""
+      - "🖥️ Frontend Service Route:"
+      - "  - Enabled: {{ routes_config.frontend_service.enabled | default(true) }}"
+      - "  - URL: https://{{ routes_config.frontend_service.hostname }}"
+      - "  - HTTP Status: {{ frontend_service_route_test.stdout if frontend_service_route_test.stdout is defined else 'Not Tested' }}"
+      - "  - Accessibility: {{ 'OK' if (frontend_service_route_test.stdout is defined and frontend_service_route_test.stdout in ['200', '301', '302']) else 'Issues Detected' }}"
+      - ""
+      - "🔗 OpenShift Router Integration:"
+      - "  - Router: {{ cf_dev_routes_ingress_status.stdout | regex_search('routerCanonicalHostname.*') if cf_dev_routes_ingress_status.stdout is defined else 'Check route status' }}"
+      - ""
+      - "📋 Next Steps:"
+      - "  1. Verify external DNS configuration for custom domains"
+      - "  2. Test application functionality through routes"
+      - "  3. Monitor route performance and availability"
+      - "  4. Verify SSL certificates are working properly"
+  tags:
+    - routes
+    - routes-validate
+    - cf-dev

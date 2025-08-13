@@ -44,7 +44,7 @@ deployment:
     - name: SPRING_DATASOURCE_USERNAME
       value: "cfadmin"
     - name: SPRING_DATASOURCE_PASSWORD
-      value: "ChangeMeInProduction!"
+      value: "svktekdbdev"
     - name: SPRING_JPA_DATABASE_PLATFORM
       value: "org.hibernate.dialect.PostgreSQLDialect"
     - name: SPRING_JPA_HIBERNATE_DDL_AUTO
@@ -57,11 +57,6 @@ deployment:
       cpu: 200m
       memory: 256Mi
 
-route:
-  enabled: true
-  host: ""
-  tls:
-    termination: edge
 
 global:
   namespace: cf-dev

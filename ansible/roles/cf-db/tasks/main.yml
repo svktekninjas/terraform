@@ -13,11 +13,10 @@
 - name: Validate required variables
   assert:
     that:
-      - cf_db_config.vpc_id is defined and cf_db_config.vpc_id != ""
-      - cf_db_config.public_subnet_id is defined and cf_db_config.public_subnet_id != ""
       - cf_db_config.region is defined
+      - cf_db_config.vpc_cidr is defined or (cf_db_config.vpc_id is defined and cf_db_config.vpc_id != "")
     fail_msg: "Required variables are missing. Please check environment configuration."
-    success_msg: "All required variables are present."
+    success_msg: "All required variables are present. VPC will be {{ 'created' if (cf_db_config.vpc_id == '' or cf_db_config.vpc_id is not defined) else 'used from existing' }}."
   tags:
     - always
     - cf-db
@@ -29,15 +28,25 @@
       - "=== CF-DB Role Execution Summary ==="
       - "Environment: {{ cf_db_config.common_tags.Environment }}"
       - "Region: {{ cf_db_config.region }}"
-      - "VPC ID: {{ cf_db_config.vpc_id }}"
+      - "VPC ID: {{ cf_db_config.vpc_id if cf_db_config.vpc_id != '' else 'To be created' }}"
+      - "VPC CIDR: {{ cf_db_config.vpc_cidr | default('172.31.0.0/16') }}"
       - "Availability Zones: {{ cf_db_config.availability_zones | join(', ') }}"
       - "Database Engine: {{ cf_db_config.database.engine }} {{ cf_db_config.database.engine_version }}"
       - "Cluster Name: {{ cf_db_config.database.cluster_name }}"
       - "Cross-VPC Access: Enabled"
+      - "ROSA Conflict: None (using 172.31.0.0/16 CIDR)"
       - "==================================="
   tags:
     - always
     - cf-db
+
+- name: Create Aurora VPC (if needed)
+  include_tasks: create_vpc.yml
+  when: cf_db_config.vpc_id == "" or cf_db_config.vpc_id is not defined
+  tags:
+    - cf-db
+    - create-vpc
+    - networking
 
 - name: Create private subnets (Multi-AZ)
   include_tasks: private_subnets.yml
@@ -76,6 +85,13 @@
     - db-cluster
     - database
 
+- name: Cleanup Aurora DB and network resources
+  include_tasks: db_cleanup.yml
+  when: cf_db_cleanup is defined and cf_db_cleanup | bool
+  tags:
+    - db-cleanup
+    - cleanup
+
 - name: Display final deployment summary
   debug:
     msg:
@@ -99,7 +115,8 @@
 
 # Role execution examples:
 # Full role:           ansible-playbook playbook.yml -t cf-db
-# Individual tasks:    ansible-playbook playbook.yml -t private-subnets
+# Individual tasks:    ansible-playbook playbook.yml -t create-vpc
+#                     ansible-playbook playbook.yml -t private-subnets
 #                     ansible-playbook playbook.yml -t nat-gateway
 #                     ansible-playbook playbook.yml -t security-groups
 #                     ansible-playbook playbook.yml -t nw-connectivity
@@ -107,3 +124,4 @@
 # Networking only:     ansible-playbook playbook.yml -t networking
 # VPC peering only:    ansible-playbook playbook.yml -t vpc-peering
 # Database only:       ansible-playbook playbook.yml -t database
+# Cleanup all DB:      ansible-playbook playbook.yml -t db-cleanup -e cf_db_environment=dev -e cf_db_cleanup=true

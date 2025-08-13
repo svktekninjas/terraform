@@ -73,8 +73,8 @@ cf_db_backup_retention_by_env:
 
 # CIDR Blocks for Cross-VPC Access
 cf_db_vpc_cidrs:
-  current_vpc: "10.0.0.0/16"
-  rosa_cluster_vpc: "172.16.0.0/16"
+  current_vpc: "172.31.0.0/16"      # Aurora VPC CIDR
+  rosa_cluster_vpc: "10.0.0.0/16"   # ROSA cluster VPC CIDR
   additional_vpc: "192.168.0.0/16"
   management_vpc: "172.20.0.0/16"
 

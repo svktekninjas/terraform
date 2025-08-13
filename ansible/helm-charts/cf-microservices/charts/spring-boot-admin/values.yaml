@@ -18,12 +18,8 @@ deployment:
       cpu: 200m
       memory: 256Mi
 
-route:
-  enabled: true
-  host: ""
-  tls:
-    termination: edge
-
 global:
   namespace: cf-dev
   registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  imagePullSecrets:
+    - name: regcred

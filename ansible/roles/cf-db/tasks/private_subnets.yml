@@ -1,21 +1,19 @@
 ---
-# Private Subnets Creation Tasks
+# Private Subnets Creation Tasks (AWS CLI)
 - name: Create private subnets in existing VPC (Multi-AZ)
-  amazon.aws.ec2_vpc_subnet:
-    vpc_id: "{{ cf_db_config.vpc_id }}"
-    cidr: "{{ item.cidr }}"
-    az: "{{ item.az }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    map_public: no
-    tags:
-      Name: "{{ item.name }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
+  shell: |
+    aws ec2 create-subnet \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_config.vpc_id | default(cf_db_created_vpc_id) }} \
+      --cidr-block {{ item.cidr }} \
+      --availability-zone {{ item.az }} \
+      --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value={{ item.name }}},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}},{Key=Component,Value={{ cf_db_config.common_tags.Component }}},{Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}},{Key=Type,Value=Private}]' \
+      --query 'Subnet.SubnetId' \
+      --output text
   register: private_subnets_result
   loop: "{{ cf_db_config.private_subnets }}"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - private-subnets
@@ -23,7 +21,7 @@
 
 - name: Set private subnet IDs fact
   set_fact:
-    private_subnet_ids: "{{ private_subnets_result.results | map(attribute='subnet.id') | list }}"
+    private_subnet_ids: "{{ private_subnets_result.results | map(attribute='stdout') | list }}"
   tags:
     - cf-db
     - private-subnets
@@ -31,8 +29,10 @@
 
 - name: Display created private subnets
   debug:
-    msg: "Created private subnet {{ item.subnet.id }} in AZ {{ item.subnet.availability_zone }}"
+    msg: "Created private subnet {{ item.stdout }} with CIDR {{ cf_db_config.private_subnets[ansible_loop.index0].cidr }} in AZ {{ cf_db_config.private_subnets[ansible_loop.index0].az }}"
   loop: "{{ private_subnets_result.results }}"
+  loop_control:
+    extended: yes
   tags:
     - cf-db
     - private-subnets

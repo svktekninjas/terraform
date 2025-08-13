@@ -1,5 +1,5 @@
 ---
-# NAT Gateway Creation Tasks
+# NAT Gateway Creation Tasks (AWS CLI)
 # Dependencies: Requires private_subnet_ids from private_subnets.yml
 
 - name: Check if private subnet IDs are available
@@ -11,15 +11,16 @@
     - networking
 
 - name: Get private subnet IDs if not available (dependency check)
-  amazon.aws.ec2_vpc_subnet_info:
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    filters:
-      "vpc-id": "{{ cf_db_config.vpc_id }}"
-      "tag:Component": "Database"
-      "tag:Environment": "{{ cf_db_config.common_tags.Environment }}"
-  register: existing_private_subnets
+  shell: |
+    aws ec2 describe-subnets \
+      --region {{ cf_db_config.region }} \
+      --filters "Name=vpc-id,Values={{ cf_db_config.vpc_id | default(cf_db_created_vpc_id) }}" "Name=tag:Type,Values=Private" \
+      --query 'Subnets[].SubnetId' \
+      --output text
+  register: existing_private_subnets_result
   when: private_subnet_ids | length == 0
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - nat-gateway
@@ -27,8 +28,8 @@
 
 - name: Set private subnet IDs from existing subnets
   set_fact:
-    private_subnet_ids: "{{ existing_private_subnets.subnets | map(attribute='subnet_id') | list }}"
-  when: private_subnet_ids | length == 0 and existing_private_subnets.subnets is defined
+    private_subnet_ids: "{{ existing_private_subnets_result.stdout.split() }}"
+  when: private_subnet_ids | length == 0 and existing_private_subnets_result.stdout is defined
   tags:
     - cf-db
     - nat-gateway
@@ -45,60 +46,152 @@
     - cf-db
     - nat-gateway
     - networking
-- name: Allocate Elastic IP for NAT Gateway
-  amazon.aws.ec2_eip:
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    in_vpc: true
-    state: present
-    tags:
-      Name: "cf-nat-eip-{{ cf_db_config.common_tags.Environment }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: eip
+
+- name: Find available unassociated Elastic IP
+  shell: |
+    aws ec2 describe-addresses \
+      --region {{ cf_db_config.region }} \
+      --query 'Addresses[?AssociationId==null].AllocationId' \
+      --output text | head -1
+  register: eip_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Set EIP allocation ID fact
+  set_fact:
+    eip_allocation_id: "{{ eip_result.stdout.split()[0] }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Tag the selected Elastic IP
+  shell: |
+    aws ec2 create-tags \
+      --region {{ cf_db_config.region }} \
+      --resources {{ eip_allocation_id }} \
+      --tags Key=Name,Value=cf-nat-eip-{{ cf_db_config.common_tags.Environment }} Key=Environment,Value={{ cf_db_config.common_tags.Environment }} Key=Project,Value={{ cf_db_config.common_tags.Project }} Key=Component,Value={{ cf_db_config.common_tags.Component }} Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - nat-gateway
     - networking
 
 - name: Create NAT Gateway in public subnet
-  amazon.aws.ec2_vpc_nat_gateway:
-    subnet_id: "{{ cf_db_config.public_subnet_id }}"
-    allocation_id: "{{ eip.allocation_id }}"
-    state: present
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    wait: true
-    tags:
-      Name: "cf-nat-gateway-{{ cf_db_config.common_tags.Environment }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: nat_gateway
+  shell: |
+    aws ec2 create-nat-gateway \
+      --region {{ cf_db_config.region }} \
+      --subnet-id {{ cf_db_config.public_subnet_id | default(cf_db_created_public_subnet_id) }} \
+      --allocation-id {{ eip_allocation_id }} \
+      --query 'NatGateway.NatGatewayId' \
+      --output text
+  register: nat_gateway_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
   tags:
     - cf-db
     - nat-gateway
     - networking
 
-- name: Create route table for private subnets with NAT Gateway route
-  amazon.aws.ec2_vpc_route_table:
-    vpc_id: "{{ cf_db_config.vpc_id }}"
-    region: "{{ cf_db_config.region }}"
-    profile: "{{ cf_db_config.profile }}"
-    routes:
-      - dest: 0.0.0.0/0
-        nat_gateway_id: "{{ nat_gateway.nat_gateway_id }}"
-    subnets: "{{ private_subnet_ids }}"
-    tags:
-      Name: "{{ cf_db_config.route_table.name }}"
-      Environment: "{{ cf_db_config.common_tags.Environment }}"
-      Project: "{{ cf_db_config.common_tags.Project }}"
-      Component: "{{ cf_db_config.common_tags.Component }}"
-      ManagedBy: "{{ cf_db_config.common_tags.ManagedBy }}"
-  register: private_route_table
+- name: Set NAT Gateway ID fact
+  set_fact:
+    nat_gateway_id: "{{ nat_gateway_result.stdout }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Tag NAT Gateway
+  shell: |
+    aws ec2 create-tags \
+      --region {{ cf_db_config.region }} \
+      --resources {{ nat_gateway_id }} \
+      --tags Key=Name,Value=cf-nat-gateway-{{ cf_db_config.common_tags.Environment }} Key=Environment,Value={{ cf_db_config.common_tags.Environment }} Key=Project,Value={{ cf_db_config.common_tags.Project }} Key=Component,Value={{ cf_db_config.common_tags.Component }} Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Wait for NAT Gateway to be available
+  shell: |
+    aws ec2 wait nat-gateway-available \
+      --region {{ cf_db_config.region }} \
+      --nat-gateway-ids {{ nat_gateway_id }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Create route table for private subnets
+  shell: |
+    aws ec2 create-route-table \
+      --region {{ cf_db_config.region }} \
+      --vpc-id {{ cf_db_config.vpc_id | default(cf_db_created_vpc_id) }} \
+      --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value={{ cf_db_config.route_table.name }}},{Key=Environment,Value={{ cf_db_config.common_tags.Environment }}},{Key=Project,Value={{ cf_db_config.common_tags.Project }}},{Key=Component,Value={{ cf_db_config.common_tags.Component }}},{Key=ManagedBy,Value={{ cf_db_config.common_tags.ManagedBy }}}]' \
+      --query 'RouteTable.RouteTableId' \
+      --output text
+  register: private_route_table_result
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Set private route table ID fact
+  set_fact:
+    private_route_table_id: "{{ private_route_table_result.stdout }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Add NAT Gateway route to private route table
+  shell: |
+    aws ec2 create-route \
+      --region {{ cf_db_config.region }} \
+      --route-table-id {{ private_route_table_id }} \
+      --destination-cidr-block 0.0.0.0/0 \
+      --nat-gateway-id {{ nat_gateway_id }}
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Associate private subnets with private route table
+  shell: |
+    aws ec2 associate-route-table \
+      --region {{ cf_db_config.region }} \
+      --route-table-id {{ private_route_table_id }} \
+      --subnet-id {{ item }}
+  loop: "{{ private_subnet_ids }}"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - cf-db
+    - nat-gateway
+    - networking
+
+- name: Display NAT Gateway configuration
+  debug:
+    msg:
+      - "NAT Gateway created successfully:"
+      - "  - NAT Gateway ID: {{ nat_gateway_id }}"
+      - "  - Elastic IP Allocation: {{ eip_allocation_id }}"
+      - "  - Private Route Table: {{ private_route_table_id }}"
+      - "  - Associated Subnets: {{ private_subnet_ids | join(', ') }}"
+      - "Private subnets now have internet access via NAT Gateway"
   tags:
     - cf-db
     - nat-gateway

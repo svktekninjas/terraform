@@ -1,0 +1,73 @@
+# Create Frontend Service route with OpenShift domain for cf-dev namespace
+---
+- name: "Create Frontend Service route with OpenShift domain"
+  shell: |
+    cat <<EOF | oc apply -f -
+    apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: frontend-service
+      namespace: {{ routes_config.cf_namespace }}
+      labels:
+        app: frontend-service
+        environment: {{ target_environment }}
+        managed-by: ansible-routes
+    spec:
+      host: {{ routes_config.frontend_service.hostname }}
+      port:
+        targetPort: {{ routes_config.frontend_service.target_port }}
+      tls:
+        termination: {{ routes_config.tls.termination }}
+      to:
+        kind: Service
+        name: {{ routes_config.frontend_service.service_name }}
+        weight: 100
+      wildcardPolicy: None
+    EOF
+  register: frontend_service_route_result
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-service
+    - frontend
+
+- name: "Get Frontend Service route URL"
+  shell: |
+    oc get route frontend-service -n {{ routes_config.cf_namespace }} -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-created"
+  register: frontend_service_route_url
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-service
+    - frontend
+
+- name: "Verify Frontend Service route status"
+  shell: |
+    oc get route frontend-service -n {{ routes_config.cf_namespace }} -o jsonpath='{.status.ingress[0].conditions[0].status}' 2>/dev/null || echo "unknown"
+  register: frontend_service_route_status
+  environment:
+    AWS_PROFILE: "{{ aws_profile }}"
+  failed_when: false
+  tags:
+    - routes
+    - routes-frontend-service
+    - frontend
+
+- name: "Display Frontend Service route creation results"
+  debug:
+    msg:
+      - "🖥️ Frontend Service Route Creation Results:"
+      - "  - Route Creation: {{ 'Success' if frontend_service_route_result.rc == 0 else 'Failed' }}"
+      - "  - Route URL: {{ frontend_service_route_url.stdout if frontend_service_route_url.stdout != 'not-created' else 'Not Available' }}"
+      - "  - Route Status: {{ frontend_service_route_status.stdout if frontend_service_route_status.stdout != 'unknown' else 'Unknown' }}"
+      - "  - Full URL: https://{{ frontend_service_route_url.stdout if frontend_service_route_url.stdout != 'not-created' else routes_config.frontend_service.hostname }}"
+      - "  - Environment: {{ target_environment }}"
+      - "  - Namespace: {{ routes_config.cf_namespace }}"
+  tags:
+    - routes
+    - routes-frontend-service
+    - frontend

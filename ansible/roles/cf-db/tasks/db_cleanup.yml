@@ -1,0 +1,395 @@
+---
+# CF-DB Role Cleanup Tasks
+# This file systematically removes all Aurora DB resources and associated network infrastructure
+# Usage: ansible-playbook playbook.yml -t db-cleanup -e cf_db_environment=dev
+# WARNING: This will permanently delete all database resources - use with caution!
+
+- name: Display cleanup warning and summary
+  debug:
+    msg:
+      - "⚠️  === CF-DB CLEANUP WARNING === ⚠️"
+      - "This will PERMANENTLY DELETE all database resources:"
+      - "Environment: {{ cf_db_config.common_tags.Environment }}"
+      - "Region: {{ cf_db_config.region }}"
+      - "VPC ID: {{ cf_db_config.vpc_id }}"
+      - "Aurora Cluster: {{ cf_db_config.database.cluster_name }}"
+      - "Database Instances: {{ cf_db_config.database.instances | length }}"
+      - "Private Subnets: {{ cf_db_config.private_subnets | length }}"
+      - "VPC Peering: {{ 'Enabled' if cf_db_config.vpc_peering.enabled | default(false) else 'Disabled' }}"
+      - ""
+      - "Resources to be deleted:"
+      - "1. Aurora DB instances and cluster"
+      - "2. DB subnet group"
+      - "3. Security groups"
+      - "4. VPC peering connection (if exists)"
+      - "5. NAT Gateway and EIP"
+      - "6. Private subnets"
+      - "7. Route tables"
+      - "====================================="
+  tags:
+    - always
+
+- name: Confirm cleanup execution
+  pause:
+    prompt: |
+      
+      ⚠️  DANGER ZONE ⚠️
+      
+      You are about to PERMANENTLY DELETE all Aurora database resources!
+      This action CANNOT be undone and will result in DATA LOSS.
+      
+      Type 'DELETE' (in capitals) to confirm destruction, or press Ctrl+C to cancel
+  register: cleanup_confirmation
+  when: cf_db_cleanup_confirmation is not defined
+  tags:
+    - always
+
+- name: Validate cleanup confirmation
+  fail:
+    msg: "Cleanup cancelled - confirmation not provided or incorrect"
+  when: 
+    - cf_db_cleanup_confirmation is not defined
+    - cleanup_confirmation.user_input != "DELETE"
+  tags:
+    - always
+
+- name: Set AWS profile environment
+  set_fact:
+    ansible_env_aws_profile: "{{ cf_db_config.profile }}"
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - always
+
+# Phase 1: Delete Aurora Database Resources
+- name: Phase 1 - Delete Aurora Database Resources
+  block:
+    - name: Get Aurora DB instances in cluster
+      shell: |
+        aws rds describe-db-instances \
+          --region {{ cf_db_config.region }} \
+          --query 'DBInstances[?DBClusterIdentifier==`{{ cf_db_config.database.cluster_name }}`].[DBInstanceIdentifier,DBInstanceStatus]' \
+          --output table
+      register: aurora_instances_check
+      ignore_errors: yes
+
+    - name: Display Aurora instances to delete
+      debug:
+        msg: "{{ aurora_instances_check.stdout_lines }}"
+      when: aurora_instances_check.rc == 0
+
+    - name: Delete Aurora DB instances
+      shell: |
+        aws rds delete-db-instance \
+          --region {{ cf_db_config.region }} \
+          --db-instance-identifier {{ item.identifier }} \
+          --skip-final-snapshot \
+          --delete-automated-backups
+      loop: "{{ cf_db_config.database.instances }}"
+      register: delete_instances_result
+      ignore_errors: yes
+
+    - name: Wait for Aurora instances to be deleted
+      shell: |
+        aws rds describe-db-instances \
+          --region {{ cf_db_config.region }} \
+          --db-instance-identifier {{ item.identifier }} \
+          --query 'DBInstances[0].DBInstanceStatus' \
+          --output text
+      loop: "{{ cf_db_config.database.instances }}"
+      register: instance_status
+      until: instance_status.rc != 0
+      retries: 30
+      delay: 30
+      ignore_errors: yes
+
+    - name: Delete Aurora DB cluster
+      shell: |
+        aws rds delete-db-cluster \
+          --region {{ cf_db_config.region }} \
+          --db-cluster-identifier {{ cf_db_config.database.cluster_name }} \
+          --skip-final-snapshot \
+          --delete-automated-backups
+      register: delete_cluster_result
+      ignore_errors: yes
+
+    - name: Wait for Aurora cluster to be deleted
+      shell: |
+        aws rds describe-db-clusters \
+          --region {{ cf_db_config.region }} \
+          --db-cluster-identifier {{ cf_db_config.database.cluster_name }}
+      register: cluster_status
+      until: cluster_status.rc != 0
+      retries: 30
+      delay: 30
+      ignore_errors: yes
+
+    - name: Delete DB subnet group
+      shell: |
+        aws rds delete-db-subnet-group \
+          --region {{ cf_db_config.region }} \
+          --db-subnet-group-name {{ cf_db_config.db_subnet_group.name }}
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-database
+
+# Phase 2: Delete VPC Peering Resources
+- name: Phase 2 - Delete VPC Peering Resources
+  block:
+    - name: Get VPC peering connection ID
+      shell: |
+        aws ec2 describe-vpc-peering-connections \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=tag:Name,Values={{ cf_db_config.vpc_peering.connection_name }}" \
+          --query 'VpcPeeringConnections[0].VpcPeeringConnectionId' \
+          --output text
+      register: vpc_peering_id
+      when: cf_db_config.vpc_peering.enabled | default(false)
+      ignore_errors: yes
+
+    - name: Delete VPC peering connection
+      shell: |
+        aws ec2 delete-vpc-peering-connection \
+          --region {{ cf_db_config.region }} \
+          --vpc-peering-connection-id {{ vpc_peering_id.stdout }}
+      when: 
+        - cf_db_config.vpc_peering.enabled | default(false)
+        - vpc_peering_id.stdout != "None"
+        - vpc_peering_id.stdout != ""
+      ignore_errors: yes
+
+    - name: Remove VPC peering routes from Aurora VPC
+      shell: |
+        ROUTE_TABLE_ID=$(aws ec2 describe-route-tables \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=tag:Name,Values={{ cf_db_config.route_table.name }}" \
+          --query 'RouteTables[0].RouteTableId' \
+          --output text)
+        if [ "$ROUTE_TABLE_ID" != "None" ] && [ "$ROUTE_TABLE_ID" != "" ]; then
+          aws ec2 delete-route \
+            --region {{ cf_db_config.region }} \
+            --route-table-id $ROUTE_TABLE_ID \
+            --destination-cidr-block 10.0.0.0/16 || true
+        fi
+      when: cf_db_config.vpc_peering.enabled | default(false)
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-vpc-peering
+
+# Phase 3: Delete Security Groups
+- name: Phase 3 - Delete Security Groups
+  block:
+    - name: Get security group ID
+      shell: |
+        aws ec2 describe-security-groups \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=group-name,Values={{ cf_db_config.security_group.name }}" \
+          --query 'SecurityGroups[0].GroupId' \
+          --output text
+      register: security_group_id
+      ignore_errors: yes
+
+    - name: Delete security group
+      shell: |
+        aws ec2 delete-security-group \
+          --region {{ cf_db_config.region }} \
+          --group-id {{ security_group_id.stdout }}
+      when: 
+        - security_group_id.stdout != "None"
+        - security_group_id.stdout != ""
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-security-groups
+
+# Phase 4: Delete NAT Gateway and EIP
+- name: Phase 4 - Delete NAT Gateway and EIP
+  block:
+    - name: Get NAT Gateway information
+      shell: |
+        aws ec2 describe-nat-gateways \
+          --region {{ cf_db_config.region }} \
+          --filter "Name=tag:Name,Values=cf-nat-gateway-{{ cf_db_config.common_tags.Environment }}" \
+          --query 'NatGateways[?State!=`deleted`].[NatGatewayId,NatGatewayAddresses[0].AllocationId]' \
+          --output text
+      register: nat_gateway_info
+      ignore_errors: yes
+
+    - name: Parse NAT Gateway details
+      set_fact:
+        nat_gateway_id: "{{ nat_gateway_info.stdout.split()[0] if nat_gateway_info.stdout else '' }}"
+        eip_allocation_id: "{{ nat_gateway_info.stdout.split()[1] if nat_gateway_info.stdout and nat_gateway_info.stdout.split() | length > 1 else '' }}"
+      when: nat_gateway_info.stdout != ""
+
+    - name: Delete NAT Gateway
+      shell: |
+        aws ec2 delete-nat-gateway \
+          --region {{ cf_db_config.region }} \
+          --nat-gateway-id {{ nat_gateway_id }}
+      when: nat_gateway_id != ""
+      register: nat_delete_result
+      ignore_errors: yes
+
+    - name: Wait for NAT Gateway deletion
+      shell: |
+        aws ec2 describe-nat-gateways \
+          --region {{ cf_db_config.region }} \
+          --nat-gateway-ids {{ nat_gateway_id }} \
+          --query 'NatGateways[0].State' \
+          --output text
+      register: nat_status
+      until: nat_status.stdout == "deleted"
+      retries: 20
+      delay: 30
+      when: nat_gateway_id != ""
+      ignore_errors: yes
+
+    - name: Release Elastic IP
+      shell: |
+        aws ec2 release-address \
+          --region {{ cf_db_config.region }} \
+          --allocation-id {{ eip_allocation_id }}
+      when: eip_allocation_id != ""
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-nat-gateway
+
+# Phase 5: Delete Private Subnets
+- name: Phase 5 - Delete Private Subnets
+  block:
+    - name: Get private subnet IDs
+      shell: |
+        aws ec2 describe-subnets \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=tag:Name,Values={{ item.name }}" \
+          --query 'Subnets[0].SubnetId' \
+          --output text
+      loop: "{{ cf_db_config.private_subnets }}"
+      register: subnet_ids
+      ignore_errors: yes
+
+    - name: Delete private subnets
+      shell: |
+        aws ec2 delete-subnet \
+          --region {{ cf_db_config.region }} \
+          --subnet-id {{ item.stdout }}
+      loop: "{{ subnet_ids.results }}"
+      when: item.stdout != "None" and item.stdout != ""
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-subnets
+
+# Phase 6: Delete Route Tables
+- name: Phase 6 - Delete Route Tables
+  block:
+    - name: Get private route table ID
+      shell: |
+        aws ec2 describe-route-tables \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=tag:Name,Values={{ cf_db_config.route_table.name }}" \
+          --query 'RouteTables[0].RouteTableId' \
+          --output text
+      register: route_table_id
+      ignore_errors: yes
+
+    - name: Delete private route table
+      shell: |
+        aws ec2 delete-route-table \
+          --region {{ cf_db_config.region }} \
+          --route-table-id {{ route_table_id.stdout }}
+      when: 
+        - route_table_id.stdout != "None"
+        - route_table_id.stdout != ""
+      ignore_errors: yes
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - db-cleanup
+    - cleanup-route-tables
+
+# Phase 7: Cleanup Summary and Verification
+- name: Phase 7 - Cleanup Verification and Summary
+  block:
+    - name: Verify Aurora cluster deletion
+      shell: |
+        aws rds describe-db-clusters \
+          --region {{ cf_db_config.region }} \
+          --db-cluster-identifier {{ cf_db_config.database.cluster_name }}
+      register: cluster_check
+      failed_when: cluster_check.rc == 0
+      ignore_errors: yes
+
+    - name: Verify subnets deletion
+      shell: |
+        aws ec2 describe-subnets \
+          --region {{ cf_db_config.region }} \
+          --filters "Name=tag:Name,Values={{ item.name }}" \
+          --query 'Subnets[].SubnetId' \
+          --output text
+      loop: "{{ cf_db_config.private_subnets }}"
+      register: subnet_check
+      ignore_errors: yes
+
+    - name: Display cleanup completion summary
+      debug:
+        msg:
+          - "🗑️  === CF-DB CLEANUP COMPLETED === 🗑️"
+          - "Environment: {{ cf_db_config.common_tags.Environment }}"
+          - "Region: {{ cf_db_config.region }}"
+          - ""
+          - "✅ Deleted Resources:"
+          - "   • Aurora cluster: {{ cf_db_config.database.cluster_name }}"
+          - "   • DB instances: {{ cf_db_config.database.instances | length }}"
+          - "   • DB subnet group: {{ cf_db_config.db_subnet_group.name }}"
+          - "   • Security group: {{ cf_db_config.security_group.name }}"
+          - "   • Private subnets: {{ cf_db_config.private_subnets | length }}"
+          - "   • Route table: {{ cf_db_config.route_table.name }}"
+          - "   • NAT Gateway and EIP"
+          - "{% if cf_db_config.vpc_peering.enabled | default(false) %}   • VPC peering: {{ cf_db_config.vpc_peering.connection_name }}{% endif %}"
+          - ""
+          - "⚠️  Resources Preserved:"
+          - "   • Main VPC: {{ cf_db_config.vpc_id }} (untouched)"
+          - "   • Public subnet: {{ cf_db_config.public_subnet_id }} (untouched)"
+          - "   • ROSA cluster resources (untouched)"
+          - ""
+          - "📋 Next Steps:"
+          - "   1. Verify no orphaned AWS resources remain"
+          - "   2. Update application configurations to remove DB references"
+          - "   3. Clean up any remaining DNS entries"
+          - "   4. Review AWS billing for cost confirmation"
+          - "================================="
+
+  environment:
+    AWS_PROFILE: "{{ cf_db_config.profile }}"
+  tags:
+    - always
+
+# Cleanup execution notes:
+# Full cleanup:        ansible-playbook playbook.yml -t db-cleanup -e cf_db_environment=dev
+# With confirmation:   ansible-playbook playbook.yml -t db-cleanup -e cf_db_environment=dev -e cf_db_cleanup_confirmation=DELETE
+# Specific phases:     ansible-playbook playbook.yml -t cleanup-database
+#                     ansible-playbook playbook.yml -t cleanup-vpc-peering
+#                     ansible-playbook playbook.yml -t cleanup-security-groups
+#                     ansible-playbook playbook.yml -t cleanup-nat-gateway
+#                     ansible-playbook playbook.yml -t cleanup-subnets
+#                     ansible-playbook playbook.yml -t cleanup-route-tables

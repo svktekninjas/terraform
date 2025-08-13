@@ -1,3 +1,7 @@
+# Configuration variables
+config:
+  configServerUri: "http://spring-cloud-config-service:8888"
+
 image:
   repository: placements-service
   tag: latest
@@ -5,11 +9,54 @@ image:
 
 service:
   type: ClusterIP
-  port: 8080
-  targetPort: 8080
+  port: 8085
+  targetPort: 8085
 
 deployment:
   replicas: 2
+  env:
+    - name: SERVER_PORT
+      value: "8085"
+    - name: SPRING_PROFILES_ACTIVE
+      value: "dev"
+    - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+      value: "http://naming-server-new:8761/eureka"
+    - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+      value: "true"
+    - name: EUREKA_INSTANCE_HOSTNAME
+      value: "placements-service"
+    - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_SERVICE_BASE_URL
+      value: "http://placements-service:8085"
+    - name: SPRING_BOOT_ADMIN_CLIENT_URL
+      value: "http://spring-boot-admin:8082"
+    - name: SPRING_CLOUD_CONFIG_URI
+      value: "{{ .Values.config.configServerUri }}"
+    - name: SPRING_CLOUD_CONFIG_FAIL_FAST
+      value: "false"
+    - name: JAVA_OPTS
+      value: "-Dspring.cloud.config.uri={{ .Values.config.configServerUri }} -Dplacements-excel-sheet-index=0"
+    - name: EXCEL_PROCESSOR_URL
+      value: "http://excel-service:8083"
+    - name: PLACEMENTS_EXCEL_SHEET_INDEX
+      value: "0"
+    - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+      value: "health,info,metrics"
+    - name: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
+      value: "always"
+    - name: LOGGING_LEVEL_ROOT
+      value: "INFO"
+    - name: SPRING_DATASOURCE_URL
+      value: "jdbc:postgresql://cf-aurora-pg-cluster-dev.cluster-c5ouqg2i83zv.us-west-1.rds.amazonaws.com:5432/cfdb_dev"
+    - name: SPRING_DATASOURCE_DRIVER_CLASS_NAME
+      value: "org.postgresql.Driver"
+    - name: SPRING_DATASOURCE_USERNAME
+      value: "cfadmin"
+    - name: SPRING_DATASOURCE_PASSWORD
+      value: "svktekdbdev"
+    - name: SPRING_JPA_DATABASE_PLATFORM
+      value: "org.hibernate.dialect.PostgreSQLDialect"
+    - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+      value: "update"
   resources:
     limits:
       cpu: 500m
@@ -18,14 +65,9 @@ deployment:
       cpu: 200m
       memory: 256Mi
 
-route:
-  enabled: true
-  host: ""
-  tls:
-    termination: edge
 
 global:
   namespace: cf-dev
   registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
   imagePullSecrets:
-    - name: ecr-secret
+    - name: regcred

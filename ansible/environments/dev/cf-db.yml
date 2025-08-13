@@ -5,17 +5,19 @@ cf_db_config:
   profile: "{{ cf_db_defaults.profile }}"
   availability_zones: "{{ cf_db_defaults.availability_zones }}"
   
-  # VPC Configuration (inheriting from defaults)
-  vpc_id: "{{ cf_db_vpc_defaults.vpc_id }}"
-  public_subnet_id: "{{ cf_db_vpc_defaults.public_subnet_id }}"
+  # VPC Configuration (New VPC with 172.31.0.0/16 CIDR)
+  vpc_id: "vpc-0be0cddd86cc68c5a"  # Created VPC - no ROSA conflict
+  vpc_cidr: "172.31.0.0/16"  # New CIDR range avoiding ROSA cluster conflict
+  public_subnet_id: "subnet-0f452286630d30745"  # Created public subnet
+  public_subnet_cidr: "172.31.1.0/24"  # Public subnet for NAT Gateway
   openshift_sg_id: "{{ cf_db_vpc_defaults.openshift_sg_id }}"
   
-  # Private Subnets Configuration (2 AZs)
+  # Private Subnets Configuration (Updated for 172.31.0.0/16)
   private_subnets:
-    - cidr: "10.0.2.0/24"
+    - cidr: "172.31.2.0/24"
       az: "us-west-1a"
       name: "cf-private-subnet-dev-1a"
-    - cidr: "10.0.3.0/24"
+    - cidr: "172.31.3.0/24"
       az: "us-west-1c"
       name: "cf-private-subnet-dev-1c"
   
@@ -23,15 +25,16 @@ cf_db_config:
   route_table:
     name: "cf-private-rt-dev"
   
-  # Security Group Configuration
+  # Security Group Configuration (Updated for new CIDR)
   security_group:
     name: "cf-aurora-db-sg-dev"
-    description: "Aurora DB Security Group for Development - Cross VPC Access"
+    description: "Aurora DB Security Group for Development - Cross VPC Access (172.31.0.0/16)"
     db_port: 5432
     allowed_cidrs:
-      - "10.0.0.0/16"    # Current VPC CIDR
-      - "172.16.0.0/16"  # ROSA cluster VPC CIDR (example)
-      - "192.168.0.0/16" # Additional VPC CIDR (example)
+      - "172.31.0.0/16"  # New Aurora VPC CIDR
+      - "10.0.0.0/16"    # ROSA cluster VPC CIDR (for cross-VPC access)
+      - "172.16.0.0/16"  # Additional private ranges if needed
+      - "192.168.0.0/16" # Additional private ranges if needed
     allowed_security_groups:
       - "{{ cf_db_vpc_defaults.openshift_sg_id }}"  # OpenShift security group
   
@@ -61,8 +64,8 @@ cf_db_config:
     
   # DB Subnet Group Configuration
   db_subnet_group:
-    name: "cf-private-db-subnet-group-dev"
-    description: "Aurora DB subnet group for Development - 2 AZs"
+    name: "cf-private-db-subnet-group-dev-v2"
+    description: "Aurora DB subnet group for Development - 2 AZs - Correct VPC"
 
   # VPC Peering Configuration for ROSA Cluster Connectivity
   vpc_peering:
