@@ -1,0 +1,103 @@
+---
+# ECR Cross-Account Access Setup Playbook
+# Configures cross-account ECR access between sidatks and svktek accounts
+
+- name: Configure ECR Cross-Account Access
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Set environment
+      set_fact:
+        cf_env: "{{ env | default('dev') }}"
+      tags: always
+        
+    - name: Validate environment parameter
+      assert:
+        that:
+          - cf_env in ['dev', 'test', 'prod']
+        fail_msg: "Environment must be one of: dev, test, prod"
+      tags: always
+        
+    - name: Load environment-specific ECR configuration
+      include_vars: "{{ playbook_dir }}/../environments/{{ cf_env }}/ecr-cross-account.yml"
+      tags: always
+      
+    - name: Validate required account IDs are set
+      assert:
+        that:
+          - cross_account.source_account_id != "REPLACE_WITH_SIDATKS_ACCOUNT_ID"
+          - cross_account.source_account_id | length == 12
+          - cross_account.target_account_id == "606639739464"
+        fail_msg: "Please update source_account_id in environments/{{ cf_env }}/ecr-cross-account.yml"
+      tags: always
+      
+    - name: Display ECR cross-account setup information
+      debug:
+        msg:
+          - "Setting up ECR cross-account access for environment: {{ cf_env }}"
+          - "Source Account (sidatks): {{ cross_account.source_account_id }}"
+          - "Target Account (svktek): {{ cross_account.target_account_id }}"
+          - "ECR Registry: {{ ecr_config.registry_url }}"
+          - "ROSA Namespace: {{ rosa_config.namespace }}"
+          - "Repositories: {{ ecr_config.repositories | length }} services"
+      tags: always
+
+    - name: Check if ROSA cluster is accessible
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ rosa_config.namespace }}"
+      register: namespace_check
+      tags: always
+
+    - name: Validate ROSA cluster access
+      assert:
+        that:
+          - namespace_check.resources | length > 0
+        fail_msg: "Cannot access ROSA cluster or namespace {{ rosa_config.namespace }} does not exist"
+      tags: always
+
+  roles:
+    - role: ecr-cross-account
+      vars:
+        cf_namespace: "{{ rosa_config.namespace }}"
+      tags: always
+
+  post_tasks:
+    - name: Display setup completion summary
+      debug:
+        msg:
+          - "✅ ECR Cross-Account Access Setup Complete!"
+          - ""
+          - "📋 What was configured:"
+          - "  - Cross-account role assumption in sidatks account"
+          - "  - ECR repository policies updated for {{ ecr_config.repositories | length }} repositories"
+          - "  - IAM policy created in svktek account"
+          - "  - Docker registry secret created: {{ rosa_config.secret_name }}"
+          - "  - Service account updated to use new secret"
+          - ""
+          - "🚀 Next Steps:"
+          - "  - Deploy microservices using updated ECR access"
+          - "  - Run: ansible-playbook playbooks/main.yml --tags 'cf-naming-server' -e env={{ cf_env }}"
+          - ""
+          - "🔍 Verify access:"
+          - "  - Run: ansible-playbook playbooks/ecr-cross-account.yml --tags 'verify' -e env={{ cf_env }}"
+      tags: always
+
+    - name: Get updated secret information
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ rosa_config.secret_name }}"
+        namespace: "{{ rosa_config.namespace }}"
+      register: secret_info
+      tags: always
+
+    - name: Display secret status
+      debug:
+        msg:
+          - "Secret {{ rosa_config.secret_name }} status: {{ 'EXISTS' if secret_info.resources else 'NOT FOUND' }}"
+          - "Created: {{ secret_info.resources[0].metadata.creationTimestamp if secret_info.resources else 'N/A' }}"
+      tags: always

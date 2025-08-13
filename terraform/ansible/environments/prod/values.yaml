@@ -1,0 +1,121 @@
+# Production Environment Values
+global:
+  namespace: cf-prod
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  pullPolicy: Always
+  imagePullSecrets:
+    - name: ecr-secret
+
+# Docker registry secret
+dockerSecret:
+  enabled: true
+  name: ecr-secret
+  dockerconfigjson: ""  # To be populated by CI/CD or Ansible
+
+# Service configurations for PROD environment
+namingServer:
+  enabled: true
+
+apiGateway:
+  enabled: true
+
+springBootAdmin:
+  enabled: true
+
+configService:
+  enabled: true
+
+excelService:
+  enabled: true
+
+benchProfile:
+  enabled: true
+
+dailySubmissions:
+  enabled: true
+
+interviews:
+  enabled: true
+
+placements:
+  enabled: true
+
+frontend:
+  enabled: true
+
+# Production-grade configurations
+naming-server:
+  deployment:
+    replicas: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+api-gateway:
+  deployment:
+    replicas: 3
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+
+spring-boot-admin:
+  deployment:
+    replicas: 2
+    resources:
+      limits:
+        cpu: 750m
+        memory: 768Mi
+      requests:
+        cpu: 300m
+        memory: 384Mi
+
+config-service:
+  deployment:
+    replicas: 2
+    resources:
+      limits:
+        cpu: 750m
+        memory: 768Mi
+      requests:
+        cpu: 300m
+        memory: 384Mi
+
+# Business services with production scaling
+excel-service:
+  deployment:
+    replicas: 3
+
+bench-profile:
+  deployment:
+    replicas: 3
+
+daily-submissions:
+  deployment:
+    replicas: 3
+
+interviews:
+  deployment:
+    replicas: 3
+
+placements:
+  deployment:
+    replicas: 3
+
+frontend:
+  deployment:
+    replicas: 4
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi

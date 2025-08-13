@@ -1,0 +1,26 @@
+---
+# Ansible Inventory for CF Microservices Deployment
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  vars:
+    # OpenShift/Kubernetes configuration
+    kubernetes_namespace: cf-dev
+    
+    # Environment mappings
+    environment_namespaces:
+      dev: cf-dev
+      test: cf-test
+      prod: cf-prod
+    
+    # Default environment
+    cf_environment: dev
+    
+    # Helm configuration
+    helm_binary: helm
+    kubectl_binary: kubectl
+    
+    # Registry configuration
+    ecr_registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm

@@ -1,0 +1,88 @@
+# Development Environment Values
+global:
+  namespace: cf-dev
+  registry: 818140567777.dkr.ecr.us-east-1.amazonaws.com/consultingfirm
+  pullPolicy: Always
+  imagePullSecrets:
+    - name: ecr-cross-account-secret
+
+# Docker registry secret
+dockerSecret:
+  enabled: true
+  name: ecr-cross-account-secret
+  dockerconfigjson: "ewoJImF1dGhzIjogewoJCSI4MTgxNDA1Njc3NzcuZGtyLmVjci51cy1lYXN0LTEuYW1hem9uYXdzLmNvbSI6IHsKCQkJImF1dGgiOiAiUVZkVE9tVjVTbmRaV0d4ellqSkdhMGxxYjJsUmJXUXdUSHBDVDB3d1l6TmpSWFJGVWtoS1drOUZVbk5qVlVaWFZFZHNTVlJZV205TE1FWkNUbTE0YkZFelRtOVdWV3N5VVRCNGMxRjZXVE5aYldRelQwUkdjMUZXUWxOVmFUa3lVVzVhUkZkc1NsUmlSbXgzVlRKU05sZFVSbmxPYmtFMFpWWm9kMkZJV25WT1Z6bHdVbFZLYlZVd05YbFphbVJwVlZacmVHSlZTa2hWU0VrellsaGFNbFZYYkhGT1NGSm9ZVVZ6ZGxZeVl6Vk1NMUpNVWpGR1MyTnJWbkpoVlRsRFZXMUtNVkpYUm1sbGJrWjRXak5vZVdFd2FGWldSWFJLWlZVeGJFNVdaekprTUVWNFVYcHNhVTVYU1RCTlJWSm9UVEkxTkZWdFZrOWxXRTEzVkVkWk1rMVZWbFZpTWpsVlMzcFplbE14WXpWVE1qQXlVV3hHZDJJeFFqVk5SV2hXV1ZobmVGVkhOWEpVTWs1MlRqQktjMDVVWTNsUFIzUndWRVpLTVZFeFNqVmxiRVV6VjFSV2FHRklVblJTVldOeVdUQTFkVTlGYUVsalJrWktXbXhzZFZkRVdteFdhM0JHWVRGa1JHSjVkSFZXUjBVeFRIbDBVRlpZV2paamJWWnNZbGhXUm1SdFZsZGtSVlpwWlZoR1IxWkljRzVaYTFKU1pGTjBVRmxXYkVwVmJrNXRUakk1ZEUxdVZrUlpWbXN5WTNwYWFGVkdRbmhYYlhCNFVsZFdOVmRHUWtWalJUa3dXbTVXYzA1NmJISmxWemxDVFdwT01HRkdTa3BVUnpGTlZUSmtkazlJVGtsVVZFbDRWbXBrY1dFeWVEQmtWMmgwVm10V2RsZEVUbTlqTUdNeFpVZFdjMUZyWkVWWlYyUnNXVlp3YjFadFJuTlNSVEZ3VkROQ2FGTnFRbHBUTVdoVlpFVm9RbVZVVWtOak1VWlFXbXhvTVZKVlRuUldhMnhxWkhrNWVFNXJPREppVjJodVl6TldUMDlWVWtOVWJWWnZXa1pLVDA5WFpFUlhWRVoxVVhrNWNXSnVWalZTUmxKMFdsWldTMUl4Y0ZWaE1VSjJVMU01VmxaVmNFTmtNRm8yWTBaU2QySXdkRVZVUlhoUlRVZHNlVlZJV25oVVF6aDNWV3RTVjJSR2NIVlRibVJDV210S2FXUlZPSFphTVVadVYycFNkMWx1V2t0WmJGSkZUVzVXVFdOdVpHcGpWR1JHVWtjMVdGVklTblpOYmtKTlRrYzVjVTFIYkV4Tk1uQlRWMnQwYW1FeFJYaFRNMHBXVWtoSmQxUklSWGhaTWxaYVdraENiR0pWVmtkVVJ6bFNWVzFqTlZwcVJrOWtSVGsxVlZWa1ZsbDZWakJWVjJkNVV6TldVbUV6UVRGTmVrcHJUMWhvVlZGdE5VeGFiRnBDVVd0NGNGbHJlRnBPVjFwSlpESldSRnBXYXpOUFdHUlVZekZPZDJWcVFuaGhWVkpJVlZkT01VNUVRWGRTYm1SM1pXcE9SbUpIV25wWlZsWnBXVlpuTkZkWFJrUmxSV3hHWkVWR1RWWnVSakpaYlU1SVVXeHNORk16V25SU1dHUkdZak5PVFZSVGRFTmxRM1JLWTI1a2RWTlhPVVJaYkZKVFlWWmFVRlF3VlRSVmExWjVUMGQ0YmxreFduSkxNVzh4V1d4c1JXUnRiR3ROTUVwSlpXMWtSbGRYWTNkU00wWXhXVEIwZEZVelpFWkxNRm95VGtWc01VMXFVVEZoVnpoM1pGVktURmw2UW5waVZscDJWMVJzZDFFd2JGQlVSMlJ5VmtVeE1GSlhTa2xSVmxaUVlqSXdNRlV4VGtsaU1uQjZWMFY0UzJWdVpFVlVhbVJFWWtkUk1Fc3lhekphU0ZadVpVVnNiVnBWYkd0YVZFNXBWWHBrUkZOVVJtcGtiR2MwVWtSU1UyUklaSGhPUlRRd1lVVmtlbGR0V2toVE1FWnpZbXhvUzFaSFVuQkxNazVhV21wR1NrNVVRWGhsVms1c1dXdEdNR0l3ZUVWVlZUbENWbGhyZUZNemNGSlZNbEpXVkcxd1VFd3daSGRpTVVaWFZVUkdNMDVYYkd0YVJXUlhWbTFhTVdOSWJHMWxSV2h3WW0xb1UyTkdRbWhrVld4UlRWVkdjMWx0T1VwaU0wcDJUbXRrZFZJeWR6UlpWVXBKV2tWc2JHTnJSbE5oUm1OM1lraENSRTlGVmxaVGVUbFJWREl3TlZkWFVtcFdWWEJEWlVoU1VrNXFiSEppVkU1SlVUTmtiMDlWVmxaVmFtUjVUbTFLVG1SdWJ6VlhibWhFVlcxYVYxa3hRbE5qYlhCNVpXcENlRnBXVGs5VGVteFJZVVJXY0ZveFZrcFZSa3BVVWpCd1dFNUhUbWxpUjNSTlRWZEZlbEV3YUdsUmVrRjNXVzVXTkZOc1RYbE5VMGx6U1cxU2FHUkhSbkphV0d0cFQybEtRbFZWVmtOUlZXaHZaREl3ZDFkWFJrcFZNSEJzVlc1U1MySlVWblZOVldNeVpGaEdiRnBYZEZsa1Z6bFpWMFpDYkU1V1ZrZFpNbFUxVlc1Rk5FeDZSVEJrTUVaQ1VWVm5NR1F5V2tKWFZYQk1ZakZ3U21GSVdtcFVhMFpTV1RCa2RsSjZhRE5aYkVaS1VXdEdSVkZ0T1VOYU1uUjRZVWQwY0ZKNmJETk5SVXBEWkRCV00xTkhaRnBUYkd4S1YydHNRbFl4VmtWUmEwWkdaRlV4UTFKVlZrVlVWbXN6WWtSc1dWcEZSbXRXYTFKTlltczFjazlWUmtwUmExWktVVlJrTTFreGFHNVdWa1o1WkVaV1JrMVljRWxSYkU1c1ZWaFdkbVJ1UlRCYWVrcFdaSHBDVTFadFZrdGlSM0JRVGxWV2NHVldiM1pTTTFwSlpERk9jR0ZVVVhwT1JuQlpZVEZPZWxSdFdUVlZSR3gzVTBoQ2RtRnJWa2RSYms1R1dUQTFOV0ZyVFhaWmJUbE9VRk5KYzBsdVdteGpiazV3WWpJMGFVOXBTWGxKYVhkcFpFaHNkMXBUU1RaSmExSkNWa1ZHWmxNd1ZscEphWGRwV2xob2QyRllTbWhrUjJ4MlltbEpOazFVWXpGTmVrRXlUVlJyZDA1WU1EMD0iCgkJfQoJfQp9"
+
+# Service configurations for DEV environment
+namingServer:
+  enabled: true
+  replicas: 1
+
+apiGateway:
+  enabled: true
+  replicas: 1
+
+springBootAdmin:
+  enabled: true
+  replicas: 1
+
+configService:
+  enabled: true
+  replicas: 1
+
+excelService:
+  enabled: true
+  replicas: 1
+
+benchProfile:
+  enabled: true
+  replicas: 1
+
+dailySubmissions:
+  enabled: true
+  replicas: 1
+
+interviews:
+  enabled: true
+  replicas: 1
+
+placements:
+  enabled: true
+  replicas: 1
+
+frontend:
+  enabled: true
+  replicas: 1
+
+# Service-specific overrides for development
+naming-server:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+api-gateway:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+
+spring-boot-admin:
+  deployment:
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 256Mi

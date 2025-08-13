@@ -1,0 +1,48 @@
+---
+# Development Environment - ECR Cross-Account Configuration
+
+# Override default account IDs with actual values
+cross_account:
+  source_account_id: "818140567777"  # sidatks account ID
+  target_account_id: "606639739464"  # svktek account ID (verified)
+  external_id: "cf-ecr-cross-account-dev-2025"
+  admin_role_name: "ECRCrossAccountAdmin"
+  region: "us-east-1"
+
+# Development-specific ECR configuration
+ecr_config:
+  registry_url: "818140567777.dkr.ecr.us-east-1.amazonaws.com"
+  repository_prefix: "consultingfirm"
+  repositories:
+    - "naming-server-service"
+    - "api-gateway-service"
+    - "config-service" 
+    - "spring-boot-admin-service"
+    - "excel-service"
+    - "bench-profile-service"
+    - "daily-submissions-service"
+    - "interviews-service"
+    - "placements-service"
+    - "frontend-service"
+
+# Development IAM configuration
+iam_config:
+  policy_name: "ECRCrossAccountPullPolicy-Dev"
+  role_name: "ECRCrossAccountPullRole-Dev"
+
+# Development ROSA configuration  
+rosa_config:
+  namespace: "cf-dev"
+  secret_name: "ecr-cross-account-secret"
+  service_account: "default"
+
+# AWS configuration for development
+aws_config:
+  profile: "svktek"
+  region: "us-east-1"
+
+# Development verification settings
+verify_config:
+  test_repository: "consultingfirm/naming-server-service"
+  test_tag: "latest"
+  timeout: 300

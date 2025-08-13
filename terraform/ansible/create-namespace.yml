@@ -1,0 +1,48 @@
+---
+# Simple Namespace Creation Playbook
+- name: Create CF Namespace
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    target_namespace: "{{ cf_ns | default('cf-dev') }}"
+    helm_release_name: "{{ helm_release | default('cf-microservices') }}"
+    
+  tasks:
+    - name: Create namespace with Helm compatibility
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ target_namespace }}"
+            labels:
+              app.kubernetes.io/managed-by: Helm
+              name: "{{ target_namespace }}"
+            annotations:
+              meta.helm.sh/release-name: "{{ helm_release_name }}"
+              meta.helm.sh/release-namespace: "{{ target_namespace }}"
+        state: present
+      tags:
+        - namespace
+        - cf-namespace
+
+    - name: Verify namespace exists
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ target_namespace }}"
+      register: namespace_info
+      tags:
+        - namespace
+        - cf-namespace
+        - verify
+
+    - name: Display namespace status
+      debug:
+        msg: "Namespace '{{ target_namespace }}' status: {{ namespace_info.resources[0].status.phase }}"
+      when: namespace_info.resources | length > 0
+      tags:
+        - namespace
+        - cf-namespace
+        - verify

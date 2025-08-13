@@ -1,0 +1,136 @@
+---
+# Setup Cross-Account ECR Access for ROSA Cluster
+# Uses Service Account + OIDC approach for persistent authentication
+
+- name: Setup Cross-Account ECR Access
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  
+  pre_tasks:
+    - name: Set environment
+      set_fact:
+        cf_env: "{{ env | default('dev') }}"
+      tags: always
+        
+    - name: Validate environment parameter
+      assert:
+        that:
+          - cf_env in ['dev', 'test', 'prod']
+        fail_msg: "Environment must be one of: dev, test, prod"
+      tags: always
+        
+    - name: Load environment-specific configuration
+      include_vars: "{{ playbook_dir }}/../environments/{{ cf_env }}/values.yaml"
+      tags: always
+      
+    - name: Set deployment variables from loaded config
+      set_fact:
+        cf_namespace: "{{ global.namespace }}"
+      tags: always
+
+    - name: Display setup information
+      debug:
+        msg:
+          - "Setting up cross-account ECR access for environment: {{ cf_env }}"
+          - "Target namespace: {{ cf_namespace }}"
+          - "Source Account (sidatks): {{ sidatks_account_id }}"
+          - "Target Account (svktek): {{ svktek_account_id }}"
+      tags: always
+
+    - name: Check ROSA cluster connectivity
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ cf_namespace }}"
+      register: namespace_check
+      ignore_errors: true
+      tags: always
+
+    - name: Display cluster access status
+      debug:
+        msg: 
+          - "ROSA cluster access: {{ 'SUCCESS' if namespace_check is succeeded else 'FAILED - Please login to cluster first' }}"
+          - "{{ 'Namespace ' + cf_namespace + ' found' if namespace_check is succeeded else 'Run: oc login <cluster-url> --username=<user>' }}"
+      tags: always
+
+    - name: Verify AWS profiles are configured
+      command: "{{ item }}"
+      loop:
+        - "aws sts get-caller-identity --profile {{ sidatks_profile }}"
+        - "aws sts get-caller-identity --profile {{ svktek_profile }}"
+      register: aws_profiles_check
+      changed_when: false
+      tags: always
+
+    - name: Display AWS account information
+      debug:
+        msg:
+          - "sidatks Account: {{ (aws_profiles_check.results[0].stdout | from_json).Account }}"
+          - "svktek Account: {{ (aws_profiles_check.results[1].stdout | from_json).Account }}"
+      tags: always
+
+  vars:
+    # Cross-Account ECR Configuration
+    sidatks_account_id: "818140567777"
+    svktek_account_id: "606639739464"
+    aws_region: "us-east-1"
+    
+    # AWS Profiles
+    sidatks_profile: "sid-KS"
+    svktek_profile: "svktek"
+    
+    # IAM Role Names
+    sidatks_ecr_role_name: "ECRCrossAccountRole"
+    rosa_ecr_role_name: "ROSAECRAssumeRole" 
+    assume_ecr_policy_name: "AssumeECRCrossAccountPolicy"
+    
+    # Service Account Configuration
+    ecr_service_account_name: "ecr-sa"
+    
+    # ECR Repositories
+    ecr_repositories:
+      - "consultingfirm/naming-server-service"
+      - "consultingfirm/api-gateway-service"
+      - "consultingfirm/spring_cloud_config"
+      - "consultingfirm/spring-boot-admin"
+      - "consultingfirm/common-excel-service"
+      - "consultingfirm/bench-profiles-service"
+      - "consultingfirm/daily-submissions-service"
+      - "consultingfirm/interviews-service"
+      - "consultingfirm/placements-service"
+      - "consultingfirm/frontend"
+    
+    # OIDC Configuration
+    oidc_thumbprint: "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
+
+  tasks:
+    - name: Include cross-account ECR setup tasks
+      include_tasks: ../roles/cf-deployment/tasks/setup-cross-account-ecr.yml
+      tags: 
+        - setup-ecr
+
+  post_tasks:
+    - name: Display next steps
+      debug:
+        msg:
+          - "🎉 Cross-Account ECR Setup Complete!"
+          - ""
+          - "📋 What was configured:"
+          - "  ✅ OIDC provider created in svktek account"
+          - "  ✅ ECRCrossAccountRole created in sidatks account"
+          - "  ✅ ROSAECRAssumeRole created in svktek account"
+          - "  ✅ ECR repository policies updated for cross-account access"
+          - "  ✅ Service account 'ecr-sa' created in {{ cf_namespace }}"
+          - ""
+          - "🚀 Next Steps:"
+          - "  1. Update Helm deployment templates to use:"
+          - "     serviceAccountName: ecr-sa"
+          - ""
+          - "  2. Deploy microservices:"
+          - "     ansible-playbook playbooks/main.yml --tags 'cf-naming-server' -e env={{ cf_env }}"
+          - ""
+          - "🔍 Verify ECR access:"
+          - "  oc get serviceaccount ecr-sa -n {{ cf_namespace }} -o yaml"
+          - "  oc describe pod <pod-name> -n {{ cf_namespace }}"
+      tags: always

@@ -1,0 +1,104 @@
+---
+# Main Playbook for CF Microservices Deployment
+# Deploy ConsultingFirm microservices to OpenShift using Helm charts
+
+- name: Deploy CF Microservices to OpenShift
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  pre_tasks:
+    - name: Set environment
+      set_fact:
+        cf_env: "{{ env | default('dev') }}"
+      tags: always
+        
+    - name: Validate environment parameter
+      assert:
+        that:
+          - cf_env in ['dev', 'test', 'prod']
+        fail_msg: "Environment must be one of: dev, test, prod"
+      tags: always
+        
+    - name: Load environment-specific configuration
+      include_vars: "{{ playbook_dir }}/../environments/{{ cf_env }}/values.yaml"
+      tags: always
+      
+    - name: Set deployment variables from loaded config
+      set_fact:
+        target_namespace: "{{ global.namespace }}"
+        values_file_path: "{{ playbook_dir }}/../environments/{{ cf_env }}/values.yaml"
+        chart_path: "{{ playbook_dir }}/../helm-charts/cf-microservices"
+        docker_config: "{{ dockerSecret.dockerconfigjson }}"
+      tags: always
+
+    - name: Display deployment information
+      debug:
+        msg:
+          - "Deploying to environment: {{ cf_env }}"
+          - "Target namespace: {{ target_namespace }}"
+          - "Values file: {{ values_file_path }}"
+          - "Helm chart path: {{ chart_path }}"
+      tags: always
+
+    - name: Check if values file exists
+      stat:
+        path: "{{ values_file_path }}"
+      register: values_file_check
+      tags: always
+
+    - name: Fail if values file doesn't exist
+      fail:
+        msg: "Values file {{ values_file_path }} not found"
+      when: not values_file_check.stat.exists
+      tags: always
+
+  roles:
+    - role: cf-deployment
+      vars:
+        cf_environment: "{{ cf_env }}"
+        cf_namespace: "{{ target_namespace }}"
+        values_file: "{{ values_file_path }}"
+        docker_config_json: "{{ docker_config }}"
+      tags: always
+
+  post_tasks:
+    - name: Get all routes in namespace
+      kubernetes.core.k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        namespace: "{{ target_namespace }}"
+      register: routes_info
+      tags:
+        - verify
+        - routes
+
+    - name: Display application routes
+      debug:
+        msg: "Route {{ item.metadata.name }}: https://{{ item.spec.host }}"
+      loop: "{{ routes_info.resources }}"
+      when: routes_info.resources is defined
+      tags:
+        - verify
+        - routes
+
+    - name: Get deployment status
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ target_namespace }}"
+      register: deployment_status
+      tags:
+        - verify
+        - status
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "Deployment Summary for {{ target_namespace }}:"
+          - "Total Deployments: {{ deployment_status.resources | length }}"
+          - "Ready Deployments: {{ deployment_status.resources | selectattr('status.readyReplicas', 'defined') | selectattr('status.replicas', 'equalto', 'status.readyReplicas') | list | length }}"
+      when: deployment_status.resources is defined
+      tags:
+        - verify
+        - status
